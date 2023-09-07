@@ -1,16 +1,20 @@
 #define NR_BITS 16
 #define NR_CHANNELS 6400
 #define NR_POLARIZATIONS 2
-#define NR_SAMPLES_PER_CHANNEL 64
+#define NR_SAMPLES 64
 #define NR_RECEIVERS 144
 #define NR_BASELINES ((NR_RECEIVERS) * ((NR_RECEIVERS) + 1) / 2)
 #define NR_RECEIVERS_PER_BLOCK 32
 #define NR_TIMES_PER_BLOCK (128 / (NR_BITS))
 
+#define INPUT_SIZE (NR_RECEIVERS * NR_CHANNELS * NR_SAMPLES * NR_POLARIZATIONS)
+#define OUTPUT_SIZE (NR_BASELINES * NR_CHANNELS * NR_POLARIZATIONS * NR_POLARIZATIONS)
+
 #include <cuda.h>
 #include <cuda_fp16.h>
 #include <iostream>
 #include <complex>
+#include <cassert>
 
 // TCC
 #include "libtcc/Correlator.h"
@@ -34,8 +38,7 @@ typedef Visibility Visibilities[NR_CHANNELS][NR_BASELINES][NR_POLARIZATIONS][NR_
 #include "xgpu.h"
 #include "xgpu_info.h"
 
-/*
- * Data ordering for input vectors is (running from slowest to fastest)
+/* Data ordering for xGPU input vectors is (running from slowest to fastest)
  * [time][channel][station][polarization][complexity]
  * Output matrix has ordering
  * [channel][station][station][polarization][polarization][complexity]
@@ -68,7 +71,7 @@ typedef Visibility Visibilities[NR_CHANNELS][NR_BASELINES][NR_POLARIZATIONS][NR_
 // inline void checkXGPUCall(int xgpu_error, XGPUContext* xgpu_context) { 
 inline void checkXGPUCall(int xgpu_error) { 
     if(xgpu_error != XGPU_OK) {
-        std::cerr << __FILE__ << "(" << __LINE__ <<") xGPU error (code " << xgpu_error << ")\n";
+        std::cerr << __FILE__ << "(" << __LINE__ << ") xGPU error (code " << xgpu_error << ")\n";
         // xgpuFree(xgpu_context);
         exit(1);
     }
@@ -88,7 +91,7 @@ void showTccInfo() {
     std::cout << "\tnstation:             " << NR_RECEIVERS << "\n";
     std::cout << "\tnbaseline:            " << NR_BASELINES << "\n";
     std::cout << "\tnfrequency:           " << NR_CHANNELS << "\n";
-    std::cout << "\tnsamples:             " << NR_SAMPLES_PER_CHANNEL << "\n";
+    std::cout << "\tnsamples:             " << NR_SAMPLES << "\n";
     std::cout << "\tcompute_type:         ";
     switch(NR_BITS) { 
         case 4:  std::cout << "INT4 multiply, INT32 accumulate\n"; break;
@@ -96,6 +99,8 @@ void showTccInfo() {
         case 16: std::cout << "FP16 multiply,  FP32 accumulate\n"; break;
     }
     std::cout << "\t=============== EXTRA INFO ===============\n";
+    std::cout << "\tinput_size:           " << INPUT_SIZE << "\n";
+    std::cout << "\toutput_size:          " << OUTPUT_SIZE << "\n";
     std::cout << "\tnreceivers_per_block: " << NR_RECEIVERS_PER_BLOCK << "\n";
     std::cout << "\tntime_per_block:      " << NR_TIMES_PER_BLOCK << "\n";
 }
@@ -143,12 +148,17 @@ void showxgpuInfo(XGPUInfo xgpu_info) {
 int main () {
     int device = 0;
 
+    std::complex<float> cmp {3.0, 4.0};
+    ComplexInput xgpu_cmp = {std::real(cmp), std::imag(cmp)};
+    assert(xgpu_cmp.real == std::real(cmp));
+    assert(xgpu_cmp.imag == std::imag(cmp));
+    
     std::cout << "Initialising CUDA...\n";
     checkCudaCall(cudaSetDevice(0)); // combine the CUDA runtime API and CUDA driver API
     checkCudaCall(cudaFree(0));
 
     std::cout << "Initialising & compiling TCC kernel with NVRTC...\n";
-    tcc::Correlator correlator(NR_BITS, NR_RECEIVERS, NR_CHANNELS, NR_SAMPLES_PER_CHANNEL, NR_POLARIZATIONS, NR_RECEIVERS_PER_BLOCK);
+    tcc::Correlator correlator(NR_BITS, NR_RECEIVERS, NR_CHANNELS, NR_SAMPLES, NR_POLARIZATIONS, NR_RECEIVERS_PER_BLOCK);
     showTccInfo();
 
     // allocate GPU X-engine memory
@@ -158,16 +168,34 @@ int main () {
     XGPUInfo xgpu_info;
     xgpuInfo(&xgpu_info); // get xGPU info from library
     showxgpuInfo(xgpu_info);
+    assert(xgpu_info.npol == NR_POLARIZATIONS &&  "xGPU npol does not match");
+    assert(xgpu_info.nstation == NR_RECEIVERS &&  "xGPU nstation does not match");
+    assert(xgpu_info.nfrequency == NR_CHANNELS && "xGPU nfrequency does not match");
+    assert(xgpu_info.ntime == NR_SAMPLES &&       "xGPU npol does not match");
+    assert(xgpu_info.nbaseline == NR_BASELINES && "xGPU npol does not match");
+    assert(xgpu_info.vecLength == INPUT_SIZE &&   "xGPU vecLength does not match");
+    // matLength will be different because of REGISTER_TILE_TRIANGULAR_ORDER
+    assert(xgpu_info.triLength == OUTPUT_SIZE &&  "xGPU triLength does not match");
 
     XGPUContext xgpu_context;
     xgpu_context.array_h = NULL; // NOT USED IN MWAX: host input array
     xgpu_context.matrix_h = NULL; // USED IN MWAX: results from channel averaging, largely reduced size
     checkXGPUCall(xgpuInit(&xgpu_context, device));
-    
 
-
-
-
-
+    /* xGPU structs (not using DP4A):
+     * typedef float ReImInput;
+     * 
+     * typedef struct ComplexInputStruct {
+     *   ReImInput real;
+     *   ReImInput imag;
+     * } ComplexInput;
+     * 
+     * typedef struct ComplexStruct {
+     *   float real;
+     *   float imag;
+     * } Complex;
+     */
+    ComplexInput *array_h = xgpu_context.array_h;
+    Complex *cuda_matrix = xgpu_context.matrix_h;
 }
 
