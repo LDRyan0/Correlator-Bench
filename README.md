@@ -1,5 +1,5 @@
 # Correlator-Bench
-A benchmarking framework for FX telescope arrays.
+A benchmarking framework for the X-engine of FX telescope arrays.
 
 Early development.
 
