@@ -1,8 +1,8 @@
 #define NR_BITS 16
-#define NR_CHANNELS 6400
+#define NR_CHANNELS 50
 #define NR_POLARIZATIONS 2
-#define NR_SAMPLES 64
-#define NR_RECEIVERS 144
+#define NR_SAMPLES 16
+#define NR_RECEIVERS 64
 #define NR_BASELINES ((NR_RECEIVERS) * ((NR_RECEIVERS) + 1) / 2)
 #define NR_RECEIVERS_PER_BLOCK 32
 #define NR_TIMES_PER_BLOCK (128 / (NR_BITS))
@@ -15,6 +15,7 @@
 #include <iostream>
 #include <complex>
 #include <cassert>
+#include <random>
 
 // TCC
 #include "libtcc/Correlator.h"
@@ -85,6 +86,10 @@ inline void checkCudaCall(cudaError_t error)
   }
 }
 
+inline float byteToMB(long bytes) {
+    return (float)bytes/(1024.0*1024.0);
+}
+
 void showTccInfo() {
     std::cout << "\t================ TCC INFO ================\n";
     std::cout << "\tnpol:                 " << NR_POLARIZATIONS << "\n";
@@ -99,8 +104,8 @@ void showTccInfo() {
         case 16: std::cout << "FP16 multiply,  FP32 accumulate\n"; break;
     }
     std::cout << "\t=============== EXTRA INFO ===============\n";
-    std::cout << "\tinput_size:           " << INPUT_SIZE << "\n";
-    std::cout << "\toutput_size:          " << OUTPUT_SIZE << "\n";
+    std::cout << "\tinput_size:           " << INPUT_SIZE << " (" << byteToMB(INPUT_SIZE*NR_BITS/8*sizeof(half)) << " MB)\n";
+    std::cout << "\toutput_size:          " << OUTPUT_SIZE << " (" << byteToMB(OUTPUT_SIZE*NR_BITS/8*sizeof(float)) << " MB)\n";
     std::cout << "\tnreceivers_per_block: " << NR_RECEIVERS_PER_BLOCK << "\n";
     std::cout << "\tntime_per_block:      " << NR_TIMES_PER_BLOCK << "\n";
 }
@@ -129,10 +134,10 @@ void showxgpuInfo(XGPUInfo xgpu_info) {
         case XGPU_FLOAT32: std::cout << "FP32\n"; break;
         default:           std::cout << "<unknown type code: " << xgpu_info.input_type << ">\n";
     }
-    std::cout << "\tvecLength:          " << xgpu_info.vecLength << "\n";
+    std::cout << "\tvecLength:          " << xgpu_info.vecLength << " (" << byteToMB(xgpu_info.vecLength*sizeof(ComplexInput)) << " MB)\n";
     std::cout << "\tvecLengthPipe:      " << xgpu_info.vecLengthPipe << "\n";
-    std::cout << "\tmatLength:          " << xgpu_info.matLength << "\n";
-    std::cout << "\ttriLength:          " << xgpu_info.triLength << "\n";
+    std::cout << "\tmatLength:          " << xgpu_info.matLength << " (" << byteToMB(xgpu_info.matLength*sizeof(Complex)) << " MB)\n";
+    std::cout << "\ttriLength:          " << xgpu_info.triLength << " (" << byteToMB(xgpu_info.triLength*sizeof(Complex)) << " MB)\n";
     std::cout << "\tmatrix_order:       ";
     switch(xgpu_info.matrix_order) {
         case TRIANGULAR_ORDER:               std::cout << "triangular\n"; break;
@@ -145,13 +150,17 @@ void showxgpuInfo(XGPUInfo xgpu_info) {
     std::cout << "\tcomplex_block_size: " << xgpu_info.complex_block_size << "\n";
 }
 
+// fill N complex samples into std::complex<float> array
+void createSamples(std::complex<float>* samples, size_t N) {
+    std::default_random_engine generator;
+    std::normal_distribution<float> distribution(0.0, 5.0);
+    for(int i=0; i<N; ++i) { 
+        samples[i] = {distribution(generator), distribution(generator)};
+    }
+}
+
 int main () {
     int device = 0;
-
-    std::complex<float> cmp {3.0, 4.0};
-    ComplexInput xgpu_cmp = {std::real(cmp), std::imag(cmp)};
-    assert(xgpu_cmp.real == std::real(cmp));
-    assert(xgpu_cmp.imag == std::imag(cmp));
     
     std::cout << "Initialising CUDA...\n";
     checkCudaCall(cudaSetDevice(0)); // combine the CUDA runtime API and CUDA driver API
@@ -162,7 +171,6 @@ int main () {
     showTccInfo();
 
     // allocate GPU X-engine memory
-    // 
     std::cout << "Initialising XGPU...\n";
 
     XGPUInfo xgpu_info;
@@ -197,5 +205,11 @@ int main () {
      */
     ComplexInput *array_h = xgpu_context.array_h;
     Complex *cuda_matrix = xgpu_context.matrix_h;
+
+    std::cout << "Generating complex samples...\n";
+    // not very good C++, but we're using C libraries so keep raw pointers
+    std::complex<float> samples[INPUT_SIZE];
+    createSamples(samples, INPUT_SIZE);
+
 }
 

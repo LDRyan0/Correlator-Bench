@@ -1,7 +1,7 @@
 NVCC=       nvcc
 CC=         gcc
 CXX=        g++
-NVCCFLAGS=  -std=c++14
+NVCCFLAGS=  -std=c++14 -g
 
 TCC_LIBDIR=    ./tensor-core-correlator/libtcc/
 TCC_INCDIR=    ./tensor-core-correlator/
@@ -13,7 +13,7 @@ LIBS=          -L$(TCC_LIBDIR) -L$(XGPU_LIBDIR)
 INCS=          -I$(TCC_INCDIR) -I$(XGPU_INCDIR)
 
 main: main.cu
-	$(NVCC) $(NVCCFLAGS) $(LIBS) $(INCS) -ltcc -lxgpumwax144t_6400 main.cu -o main
+	$(NVCC) $(NVCCFLAGS) $(LIBS) $(INCS) -ltcc -lxgpumwax64t_50 main.cu -o main
 
 clean: 
 	rm -rf main
