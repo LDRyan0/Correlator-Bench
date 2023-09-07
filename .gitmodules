@@ -1,0 +1,6 @@
+[submodule "tensor-core-correlator"]
+	path = tensor-core-correlator
+	url = https://git.astron.nl/RD/tensor-core-correlator.git
+[submodule "mwax-xGPU"]
+	path = mwax-xGPU
+	url = git@github.com:MWATelescope/mwax-xGPU.git
