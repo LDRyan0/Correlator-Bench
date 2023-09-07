@@ -20,7 +20,7 @@ Early development. Only targeting [TCC](https://git.astron.nl/RD/tensor-core-cor
 | OS          | Linux distro (amd64) |
 
 # Roadmap
-- complex normally distributed input values
+- ~complex normally distributed input values~
 - reorder to xGPU and TCC format
 - execution of xGPU and TCC
 - reorder from xGPU and TCC to common (MWAX?) format
