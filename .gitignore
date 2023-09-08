@@ -4,8 +4,7 @@
 !*/
 
 .vscode
-tensor-core-correlator/build-x86_64
-external/
 *.o
 *.so
 init_env.sh
+.nfs*
