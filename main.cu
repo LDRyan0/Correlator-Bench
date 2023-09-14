@@ -1,25 +1,31 @@
 #include <iostream>
 #include <complex>
+#include <random>
 
-#include "bench_tcc.cu"
-#include "bench_xgpu.cu"
-
+#include "bench_tcc.h"
+#include "bench_xgpu.h"
 #include "util.h"
 
-inline void checkCudaCall(cudaError_t error) {
-  if (error != cudaSuccess) {
-    std::cerr << "error " << error << std::endl;
-    exit(1);
-  }
+#define checkCudaCall(function, ...) { \
+    cudaError_t error = function; \
+    if (error != cudaSuccess) { \
+        std::cerr  << __FILE__ << "(" << __LINE__ << ") CUDA ERROR: " << cudaGetErrorString(error) << std::endl; \
+        exit(1); \
+    } \
 }
 
 // fill N complex samples into std::complex<float> array
-void createSamples(std::complex<float>* samples, size_t N) {
+void createRandomSamples(std::complex<float>* samples, size_t N) {
     std::default_random_engine generator;
     std::normal_distribution<float> distribution(0.0, 5.0);
     for(int i=0; i<N; ++i) { 
         samples[i] = {distribution(generator), distribution(generator)};
     }
+}
+
+void createTestVector(std::complex<float>* samples, size_t N) { 
+    memset(samples, 0, N * sizeof(std::complex<float>));
+    samples[0] = {1, 2};
 }
 
 int main () {
@@ -33,15 +39,32 @@ int main () {
     params.output_size = params.nbaseline * params.nfrequency * params.npol * params.npol;
 
     std::cout << "Initialising CUDA...\n";
-    checkCudaCall(cudaSetDevice(0)); // combine the CUDA runtime API and CUDA driver API
-    checkCudaCall(cudaFree(0));
+    cudaSetDevice(0); // combine the CUDA runtime API and CUDA driver API
+    cudaFree(0);
 
-    std::cout << "Generating complex samples...\n";
-    // not very good C++, but we're using C libraries so keep raw pointers
-    std::complex<float> samples[INPUT_SIZE];
-    createSamples(samples, INPUT_SIZE);
-    
-    runTCC(params);
-    runXGPU(params);
+    std::cout << "Generating random complex samples...\n";
+    // not very good C++, but we want easy compatibility with C libraries so keep raw pointers
+    std::complex<float>* samples_h = new std::complex<float>[params.input_size];
+    std::complex<float>* visibilities_h = new std::complex<float>[params.output_size];
+    // createRandomSamples(samples_h, params.input_size);
+    createTestVector(samples_h, params.input_size);
+
+    std::cout << "First 10 input samples:\n";
+    for(int i = 0; i < 10; ++i) { 
+        std::cout << samples_h[i] << "\n";
+    }
+
+
+    // Results xgpu_result = runXGPU(params, samples_h, visibilities_h);
+    Results tcc_result = runTCC(params, samples_h, visibilities_h);
+
+
+    std::cout << "First 10 output samples:\n";
+    for(int i = 0; i < 10; ++i) { 
+        std::cout << visibilities_h[i] << "\n";
+    }    
+
+    delete samples_h;
+    delete visibilities_h;
 }
 

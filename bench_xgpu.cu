@@ -1,3 +1,14 @@
+#include "bench_xgpu.h"
+
+#include <iostream>
+#include <cassert>
+#include <cuda.h>
+
+#include "xgpu.h"
+#include "xgpu_info.h"
+#include "util.h"
+
+
 #define NR_BITS 16
 #define NR_CHANNELS 50
 #define NR_POLARIZATIONS 2
@@ -10,18 +21,27 @@
 #define INPUT_SIZE (NR_RECEIVERS * NR_CHANNELS * NR_SAMPLES * NR_POLARIZATIONS)
 #define OUTPUT_SIZE (NR_BASELINES * NR_CHANNELS * NR_POLARIZATIONS * NR_POLARIZATIONS)
 
-#include <iostream>
-#include <cassert>
-#include <cuda.h>
+typedef struct XGPUInternalContextPartStruct {
+  int device;
+  std::complex<float> *array_d[2];
+  std::complex<float> *matrix_d;
+} XGPUInternalContextPart;
 
-#include "bench_xgpu.h"
-#include "util.h"
+
+inline void checkXGPUCall(int xgpu_error) { 
+// void checkXGPUCall(int xgpu_error) { 
+    if(xgpu_error != XGPU_OK) {
+        std::cerr << __FILE__ << "(" << __LINE__ << ") xGPU error (code " << xgpu_error << ")\n";
+        // xgpuFree(xgpu_context);
+        exit(1);
+    }
+}
 
 
 /* Data ordering for xGPU input vectors is (running from slowest to fastest)
  * [time][channel][station][polarization][complexity]
  * Output matrix has ordering
- * [channel][station][station][polarization][polarization][complexity]
+ * [channel][station][station][polarization][polarization][complexity] (REGISTER TILE TRIANGULAR!!)
  */
 
 /* Define MATRIX_ORDER based on which MATRIX_ORDER_XXX is defined.
@@ -48,19 +68,8 @@
 #define XGPU_HOST_BUFFER_NOT_SET         (5)
 */
 
-
-inline void checkXGPUCall(int xgpu_error) { 
-// void checkXGPUCall(int xgpu_error) { 
-    if(xgpu_error != XGPU_OK) {
-        std::cerr << __FILE__ << "(" << __LINE__ << ") xGPU error (code " << xgpu_error << ")\n";
-        // xgpuFree(xgpu_context);
-        exit(1);
-    }
-}
-
 void showxgpuInfo(XGPUInfo xgpu_info) {
     std::cout << "\t=============== XGPU INFO ================\n";
-
     std::cout << "\tnpol:               " << xgpu_info.npol << "\n";
     std::cout << "\tnstation:           " << xgpu_info.nstation << "\n";
     std::cout << "\tnbaseline:          " << xgpu_info.nbaseline << "\n";
@@ -98,8 +107,15 @@ void showxgpuInfo(XGPUInfo xgpu_info) {
     std::cout << "\tcomplex_block_size: " << xgpu_info.complex_block_size << "\n";
 }
 
-void runXGPU(Parameters params) {
+Results runXGPU(Parameters params, std::complex<float>* samples_h, std::complex<float>* visibilities_h) {
+    Results result;
     int device = 0;
+
+    // xGPU has two input buffers, assume this is for read/write ping pong style?
+    std::complex<float> *array_d0; // xGPU buffer holding 1st half of input data
+    std::complex<float> *array_d1; // xGPU buffer holding 2nd half of input data
+    std::complex<float> *matrix_d;
+
     // allocate GPU X-engine memory
     std::cout << "Initialising XGPU...\n";
 
@@ -117,24 +133,35 @@ void runXGPU(Parameters params) {
     assert(xgpu_info.triLength == params.output_size &&  "xGPU triLength does not match");
     // xgpu_info.matLength will be different because of REGISTER_TILE_TRIANGULAR_ORDER
 
-    XGPUContext xgpu_context;
-    xgpu_context.array_h = NULL; // NOT USED IN MWAX: host input array
-    xgpu_context.matrix_h = NULL; // USED IN MWAX: results from channel averaging, largely reduced size
-    checkXGPUCall(xgpuInit(&xgpu_context, device));
+    XGPUContext xgpu_ctx;
+    xgpu_ctx.array_h = NULL; // NOT USED IN MWAX: host input array
+    xgpu_ctx.matrix_h = NULL; // USED IN MWAX: results from channel averaging, largely reduced size
+    checkXGPUCall(xgpuInit(&xgpu_ctx, device)); // allocates all internal buffers
+    XGPUInternalContextPart *xgpuInternalPointer = (XGPUInternalContextPart *)xgpu_ctx.internal;
 
-    /* xGPU structs (not using DP4A):
-     * typedef float ReImInput;
-     * 
-     * typedef struct ComplexInputStruct {
-     *   ReImInput real;
-     *   ReImInput imag;
-     * } ComplexInput;
-     * 
-     * typedef struct ComplexStruct {
-     *   float real;
-     *   float imag;
-     * } Complex;
-     */
-    ComplexInput *array_h = xgpu_context.array_h;
-    Complex *cuda_matrix = xgpu_context.matrix_h;
+    // set device pointers equal to buffers created by xGPU
+    array_d0 = xgpuInternalPointer->array_d[0]; // location of the 1st xGPU input array, for telling the pre-correlation code where to write results
+    array_d1 = xgpuInternalPointer->array_d[1]; // location of the 2nd xGPU input array, for telling the pre-correlation code where to write results
+    matrix_d = xgpuInternalPointer->matrix_d;   // the xGPU output matrix, for use in frequency averaging and fetching of visibilities
+
+    cudaMemcpy(samples_h, array_d0, params.input_size * sizeof(ComplexInput), cudaMemcpyHostToDevice);
+
+    std::cout << xgpuInternalPointer->array_d[0] << std::endl;
+    std::cout << array_d0 << std::endl;
+
+    std::cout << xgpuInternalPointer->matrix_d << std::endl;
+    std::cout << matrix_d << std::endl;
+
+
+    result.in_reorder_time = 0;
+    result.compute_time = 0;
+    result.out_reorder_time = 0;
+
+    checkXGPUCall(xgpuCudaXengine(&(xgpu_ctx), SYNCOP_SYNC_COMPUTE));
+
+    cudaMemcpy(matrix_d, visibilities_h, params.output_size * sizeof(ComplexInput), cudaMemcpyDeviceToHost);
+
+    xgpuFree(&xgpu_ctx);
+
+    return result;
 }

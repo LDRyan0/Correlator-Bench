@@ -1,4 +1,9 @@
-#include "util.h"
+#ifndef BENCH_TCC_H
+#define BENCH_TCC_H
 
-void showTccInfo(Parameters);
-void runTCC(Parameters);
+#include "util.h"
+#include <complex>
+
+Results runTCC(Parameters, const std::complex<float>*, std::complex<float>*);
+
+#endif

@@ -17,7 +17,7 @@ typedef struct {
     float in_reorder_time;
     float compute_time;
     float out_reorder_time;
-} BenchResult;
+} Results;
 
 float byteToMB(long bytes);
 

@@ -1,33 +1,35 @@
 NVCC=          nvcc
-CC=            gcc
-CXX=           g++
-NVCCFLAGS=     -std=c++14 
+NVCCFLAGS=     -std=c++14 -g
 
 TCC_LIBDIR=    ./tensor-core-correlator/libtcc/
-TCC_INCDIR=    ./tensor-core-correlator/
-
 XGPU_LIBDIR=   ./mwax-xGPU/src/
+
+TCC_INCDIR=    ./tensor-core-correlator/
 XGPU_INCDIR=   ./mwax-xGPU/src/
 
+LIBS=          -L$(XGPU_LIBDIR) -lxgpumwax64t_50
+LIBS+=         -L$(TCC_LIBDIR) -ltcc
 
-LIBS=          -L$(XGPU_LIBDIR) -L$(TCC_LIBDIR)
-INCS=          -I$(XGPU_INCDIR) -I$(TCC_INCDIR)
-LDLIBS=        -ltcc -lxgpumwax64t_50
+INCS=          -I$(TCC_INCDIR) -I$(XGPU_INCDIR)
 
-OBJS=          bench_tcc.o bench_xgpu.o
+OBJS=          main.o bench_tcc.o bench_xgpu.o util.o
 EXEC=          main
 
-$(EXEC): main.cu bench_tcc.o bench_xgpu.o util.o
-	$(NVCC) $(NVCCFLAGS) $(INCS) $(LIBS) $(LDLIBS) main.cu -o main
+$(EXEC): $(OBJS)
+	$(NVCC) $(NVCCFLAGS) -o $(EXEC) $(OBJS) $(LIBS)
 
-bench_tcc.o: bench_tcc.cu util.o
-	$(NVCC) $(NVCCFLAGS) -I$(TCC_INCDIR) -ltcc -c bench_tcc.cu
+main.o: main.cu
+	$(NVCC) $(NVCCFLAGS) -c main.cu
 
-bench_xgpu.o: bench_xgpu.cu util.o
-	$(NVCC) $(NVCCFLAGS) -I$(XGPU_INCDIR) -lxgpumwax64t_50 -c bench_xgpu.cu
+bench_tcc.o: bench_tcc.cu
+	$(NVCC) $(NVCCFLAGS) -I$(TCC_INCDIR) -c bench_tcc.cu
+
+bench_xgpu.o: bench_xgpu.cu
+	$(NVCC) $(NVCCFLAGS) -I$(XGPU_INCDIR) -c bench_xgpu.cu
 
 util.o: util.cu
 	$(NVCC) $(NVCCFLAGS) -c util.cu
 
-clean: 
-	rm $(EXEC) $(OBJS) 
+clean:
+	rm *.o $(EXEC)
+

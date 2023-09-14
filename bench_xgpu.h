@@ -1,8 +1,10 @@
-#include "xgpu.h"
-#include "xgpu_info.h"
+#ifndef BENCH_XGPU_H
+#define BENCH_XGPU_H
+
+#include <complex>
 #include "util.h"
 
-void runXGPU(Parameters);
-void showxgpuInfo(XGPUInfo xgpu_info);
-inline void checkXGPUCall(int xgpu_error);
+Results runXGPU(Parameters, std::complex<float>* samples, std::complex<float>* visibilities);
+
+#endif
 
