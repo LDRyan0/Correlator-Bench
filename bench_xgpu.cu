@@ -27,6 +27,13 @@ typedef struct XGPUInternalContextPartStruct {
   std::complex<float> *matrix_d;
 } XGPUInternalContextPart;
 
+#define checkCudaCall(function, ...) { \
+    cudaError_t error = function; \
+    if (error != cudaSuccess) { \
+        std::cerr  << __FILE__ << "(" << __LINE__ << ") CUDA ERROR: " << cudaGetErrorString(error) << std::endl; \
+        exit(1); \
+    } \
+}
 
 inline void checkXGPUCall(int xgpu_error) { 
 // void checkXGPUCall(int xgpu_error) { 
@@ -144,14 +151,7 @@ Results runXGPU(Parameters params, std::complex<float>* samples_h, std::complex<
     array_d1 = xgpuInternalPointer->array_d[1]; // location of the 2nd xGPU input array, for telling the pre-correlation code where to write results
     matrix_d = xgpuInternalPointer->matrix_d;   // the xGPU output matrix, for use in frequency averaging and fetching of visibilities
 
-    cudaMemcpy(samples_h, array_d0, params.input_size * sizeof(ComplexInput), cudaMemcpyHostToDevice);
-
-    std::cout << xgpuInternalPointer->array_d[0] << std::endl;
-    std::cout << array_d0 << std::endl;
-
-    std::cout << xgpuInternalPointer->matrix_d << std::endl;
-    std::cout << matrix_d << std::endl;
-
+    checkCudaCall(cudaMemcpy(array_d0, samples_h, params.input_size * sizeof(ComplexInput), cudaMemcpyHostToDevice));
 
     result.in_reorder_time = 0;
     result.compute_time = 0;
@@ -159,7 +159,7 @@ Results runXGPU(Parameters params, std::complex<float>* samples_h, std::complex<
 
     checkXGPUCall(xgpuCudaXengine(&(xgpu_ctx), SYNCOP_SYNC_COMPUTE));
 
-    cudaMemcpy(matrix_d, visibilities_h, params.output_size * sizeof(ComplexInput), cudaMemcpyDeviceToHost);
+    checkCudaCall(cudaMemcpy(visibilities_h, matrix_d, params.output_size * sizeof(ComplexInput), cudaMemcpyDeviceToHost));
 
     xgpuFree(&xgpu_ctx);
 

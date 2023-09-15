@@ -55,11 +55,18 @@ int main () {
     }
 
 
-    // Results xgpu_result = runXGPU(params, samples_h, visibilities_h);
+    Results xgpu_result = runXGPU(params, samples_h, visibilities_h);
+
+    std::cout << "First 10 output samples from xGPU:\n";
+    for(int i = 0; i < 10; ++i) { 
+        std::cout << visibilities_h[i] << "\n";
+    }    
+
+    memset(visibilities_h, 0, params.output_size * sizeof(std::complex<float>));
     Results tcc_result = runTCC(params, samples_h, visibilities_h);
 
 
-    std::cout << "First 10 output samples:\n";
+    std::cout << "First 10 output samples from TCC:\n";
     for(int i = 0; i < 10; ++i) { 
         std::cout << visibilities_h[i] << "\n";
     }    
