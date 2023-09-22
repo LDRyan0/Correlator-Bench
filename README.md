@@ -21,9 +21,18 @@ Early development. Only targeting [TCC](https://git.astron.nl/RD/tensor-core-cor
 
 # Roadmap
 - ~complex normally distributed input values~
-- reorder to xGPU and TCC format
-- execution of xGPU and TCC
-- reorder from xGPU and TCC to common (MWAX?) format
+- ~xGPU~
+  - ~input reorder to xGPU~
+  - ~execution of xGPU~
+  - ~output reorder xGPU to MWAX~
+- TCC
+  - input reorder to TCC
+  - ~execution of TCC~
+  - output reorder xGPU to MWAX
 - benchmarking analysis
 - output validation
 - result precision comparison (TCC requires downconversion to FP16)
+- generalise interface
+  - change main.cu to main.c/main.cpp
+  - pass arrays as void* and let user typecast to custom complex format
+  - store size of input in parameters for full generalisability

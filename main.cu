@@ -26,6 +26,7 @@ void createRandomSamples(std::complex<float>* samples, size_t N) {
 void createTestVector(std::complex<float>* samples, size_t N) { 
     memset(samples, 0, N * sizeof(std::complex<float>));
     samples[0] = {1, 2};
+    samples[1] = {1, 3};
 }
 
 int main () {
@@ -46,6 +47,8 @@ int main () {
     // not very good C++, but we want easy compatibility with C libraries so keep raw pointers
     std::complex<float>* samples_h = new std::complex<float>[params.input_size];
     std::complex<float>* visibilities_h = new std::complex<float>[params.output_size];
+    
+    // data in [antenna][polarisation][time][channel]
     // createRandomSamples(samples_h, params.input_size);
     createTestVector(samples_h, params.input_size);
 

@@ -25,7 +25,6 @@
 
 __global__ void float_to_half_kernel(const float* input, __half* output, unsigned size)
 {
-
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
     if(idx < size) { 
@@ -65,7 +64,6 @@ void showTccInfo(Parameters params) {
     std::cout << "\tnreceivers_per_block: " << NR_RECEIVERS_PER_BLOCK << "\n";
     std::cout << "\tntime_per_block:      " << NR_TIMES_PER_BLOCK << "\n";
 }
-
 
 Results runTCC(Parameters params, const std::complex<float>* input_h, std::complex<float>* visibilities_h) {
     Results result;
