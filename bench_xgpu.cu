@@ -46,26 +46,7 @@ inline void checkXGPUCall(int xgpu_error) {
 }
 
 
-/* Data ordering for xGPU input vectors is (running from slowest to fastest)
- * [time][channel][station][polarization][complexity]
- * Output matrix has ordering
- * [channel][station][station][polarization][polarization][complexity]
- */
-
-/* Define MATRIX_ORDER based on which MATRIX_ORDER_XXX is defined.
- * There are three matrix packing options:
- *
- * TRIANGULAR_ORDER
- * REAL_IMAG_TRIANGULAR_ORDER
- * REGISTER_TILE_TRIANGULAR_ORDER (default)
- */
-
-
-/* Data ordering for xGPU input vectors is (running from slowest to fastest)
- * [time][channel][station][polarization](complexity)
- */
-
-// [station][polarisation][time][channel](complexity) -> [time][channel][station][polarization](complexity)
+// [station][polarisation][time][channel] -> [time][channel][station][polarization](complexity)
 __global__ void transpose_to_xGPU_kernel(const cuFloatComplex* input, cuFloatComplex* output, unsigned rows, unsigned columns)
 {
     // blockIdx.x is column (input time-freq)
@@ -86,7 +67,6 @@ __global__ void transpose_to_xGPU_kernel(const cuFloatComplex* input, cuFloatCom
  */ 
 extern "C"
 int transpose_to_xGPU(cuFloatComplex* input, cuFloatComplex* output, unsigned rows, unsigned columns) {
-    std::cout << "transpose_to_xGPU()\n";
     int nblocks = (int)columns;
     int nthreads = (int)rows;
 
@@ -101,7 +81,6 @@ int transpose_to_xGPU(cuFloatComplex* input, cuFloatComplex* output, unsigned ro
 /*  matLength from channel averaging)                                         */
     /******************************************************************************/
 __host__ void xgpu_reg_to_tri(Parameters *params, void *reg_buffer) {
-    std::cout << "xgpu_reg_to_tri()\n";
     int f, i, rx, j, ry, pol1, pol2;
     int reg_index;
     int tri_index;
@@ -200,12 +179,8 @@ void xgpu_tri_to_mwax(Parameters *params, void * tri_buffer)
         first_baseline_index += first_baseline_step;
         baseline_index = first_baseline_index;
     }
-    std::cout << "Exited loop\n";
-
     memcpy(complex_tri_buffer, float_mwax_buffer_orig, params->output_size*sizeof(Complex));
-    std::cout << "Freeeee\n";
     free(float_mwax_buffer_orig);
-    std::cout << "xgpu_tri_to_mwax() finished\n";
 
     return;
 }
@@ -258,7 +233,6 @@ Results runXGPU(Parameters params, std::complex<float>* samples_h, std::complex<
     std::complex<float> *output_d; // output visibilities (after reorder)
 
     std::complex<float> *array_d0; // xGPU buffer holding 1st half of input data
-    std::complex<float> *array_d1; // xGPU buffer holding 2nd half of input data
     std::complex<float> *matrix_d;
     std::complex<float> *matrix_h = (std::complex<float>*)malloc(params.output_size * sizeof(Complex)); 
 
@@ -298,7 +272,6 @@ Results runXGPU(Parameters params, std::complex<float>* samples_h, std::complex<
 
     // set device pointers equal to buffers created by xGPU
     array_d0 = xgpuInternalPointer->array_d[0]; // location of the 1st xGPU input array, for telling the pre-correlation code where to write results
-    array_d1 = xgpuInternalPointer->array_d[1]; // location of the 2nd xGPU input array, for telling the pre-correlation code where to write results
     matrix_d = xgpuInternalPointer->matrix_d;   // the xGPU output matrix, for use in frequency averaging and fetching of visibilities
     
     // device function!

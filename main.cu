@@ -1,4 +1,5 @@
 #include <iostream>
+#include <iomanip>
 #include <complex>
 #include <random>
 
@@ -29,6 +30,23 @@ void createTestVector(std::complex<float>* samples, size_t N) {
     samples[1] = {1, 3};
 }
 
+void printOutputSnapshot(Parameters params, std::complex<float>* data) {
+    int idx = 0;
+    std::cout.precision(5);
+    for(int b = 0; b < 20; b++) { 
+        std::cout << "Baseline: " << b << "\n";
+        for(int f = 0; f < 4; f++) {
+            std::cout << "ch " << f << " | ";
+            for(int p = 0; p < params.npol*params.npol; p++) {
+                std::cout << std::fixed << data[idx] << " ";
+                idx++;
+            }
+            std::cout << "\n";
+        }
+        std::cout << "\n\n";
+    }  
+}
+
 int main () {
     Parameters params;
     params.npol = 2;
@@ -49,30 +67,22 @@ int main () {
     std::complex<float>* visibilities_h = new std::complex<float>[params.output_size];
     
     // data in [antenna][polarisation][time][channel]
-    // createRandomSamples(samples_h, params.input_size);
-    createTestVector(samples_h, params.input_size);
+    createRandomSamples(samples_h, params.input_size);
+    // createTestVector(samples_h, params.input_size);
 
     std::cout << "First 10 input samples:\n";
     for(int i = 0; i < 10; ++i) { 
         std::cout << samples_h[i] << "\n";
     }
 
-
     Results xgpu_result = runXGPU(params, samples_h, visibilities_h);
 
-    std::cout << "First 10 output samples from xGPU:\n";
-    for(int i = 0; i < 10; ++i) { 
-        std::cout << visibilities_h[i] << "\n";
-    }    
+    printOutputSnapshot(params, visibilities_h);
 
     memset(visibilities_h, 0, params.output_size * sizeof(std::complex<float>));
     Results tcc_result = runTCC(params, samples_h, visibilities_h);
 
-
-    std::cout << "First 10 output samples from TCC:\n";
-    for(int i = 0; i < 10; ++i) { 
-        std::cout << visibilities_h[i] << "\n";
-    }    
+    printOutputSnapshot(params, visibilities_h);
 
     delete samples_h;
     delete visibilities_h;

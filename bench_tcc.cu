@@ -23,26 +23,63 @@
     } \
 }
 
-__global__ void float_to_half_kernel(const float* input, __half* output, unsigned size)
-{
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+// new: [station][polarisation][time][frequency] -> [frequency][time / tpb][station][polarisation][tpb]
+// old: [time][frequency][station][polarisation] -> [frequency][time / tpb][station][polarisation][tpb]
+// need to cast input and output as float as float to half conversion is not supported for complex types
+// TODO: change so that number of channels can be > 1024
+__global__ void transpose_to_TCC_kernel(Parameters params, const float* input, __half* output) {
+    int t, f, s, p;
+    f = threadIdx.x;
+    t = blockIdx.x;
+    p = blockIdx.y;
+    s = blockIdx.z;
+    
+    // split into two time axes
+    int t0, t1;
+    t0 = t / NR_TIMES_PER_BLOCK;
+    t1 = t % NR_TIMES_PER_BLOCK;
+    
+    int in_idx = 2*(s*params.npol*params.nsample*params.nfrequency + p*params.nsample*params.nfrequency + t*params.nfrequency + f);
+    int out_idx = 2*(f*params.nsample*params.nstation*params.npol + t0*params.nstation*params.npol*NR_TIMES_PER_BLOCK 
+        + s*params.npol*NR_TIMES_PER_BLOCK + p*NR_TIMES_PER_BLOCK + t1);
 
-    if(idx < size) { 
-        output[idx] = __float2half(input[idx]);
+    output[out_idx] = __float2half(input[in_idx]);     // real 
+    output[out_idx+1] = __float2half(input[in_idx+1]); // complex
+}
+
+inline void transpose_to_TCC(Parameters params, const std::complex<float>* input, std::complex<__half>* output, cudaStream_t stream) {
+    dim3 block(params.nfrequency, 1, 1);
+    dim3 grid(params.nsample, params.npol, params.nstation);
+
+    transpose_to_TCC_kernel<<<grid, block, 0, stream>>>(params, (float*)input, (__half*)output);
+}
+
+// [frequency][baseline][polarisation][polarisation] -> [baseline][frequency][polarisation*4]
+// MWAX polarisation order: 
+//      xx_real, xx_imag, yx_real, yx_imag, xy_real, xy_imag, yy_real, yy_imag
+// TODO: test this against 3D kernel where polarisation is it's own thread index
+__global__ void tcc_to_mwax_kernel(Parameters params, const std::complex<float>* input, std::complex<float>* output) {
+    int f, b, p;
+    b = blockIdx.x*blockDim.x + threadIdx.x;
+    f = blockIdx.y;
+    int in_idx = f*params.nbaseline*params.npol*params.npol + b*params.npol*params.npol;
+    int out_idx = b*params.nfrequency*params.npol*params.npol + f*params.npol*params.npol;
+
+    if(in_idx < params.output_size && out_idx < params.output_size) {
+    
+        #pragma unroll
+        for(p=0; p<params.npol*params.npol; ++p) {
+            output[out_idx+p] = input[in_idx+p];
+        }
     }
 }
 
-void float_to_half(const float* input,  __half* output, size_t size, cudaStream_t stream)
-{
-    int nthreads;
-    int nblocks;
-    if (size < 1024)
-        nthreads = size;
-    else
-        nthreads = 1024;
-    nblocks = (size + nthreads - 1) / nthreads;
+inline void tcc_to_mwax(Parameters params, const std::complex<float>* input, std::complex<float>* output, cudaStream_t stream) { 
+    dim3 block(1024);
+    dim3 grid(params.nbaseline / 1024, params.nfrequency);
+    tcc_to_mwax_kernel<<<grid, block, 0, stream>>>(params, input, output);
+                
     
-    float_to_half_kernel<<<nblocks,nthreads,0,stream>>>(input, output, size);
 }
 
 void showTccInfo(Parameters params) {
@@ -71,7 +108,8 @@ Results runTCC(Parameters params, const std::complex<float>* input_h, std::compl
 
     cudaStream_t stream;
     std::complex<float>* input_d; // store fp32 input
-    std::complex<__half> *samples_d; // typecast down to fp16
+    std::complex<__half> *tcc_in_d; // typecast down to fp16
+    std::complex<float> *tcc_out_d;
     std::complex<float> *visibilities_d;
     try {
         tcc::Correlator correlator(NR_BITS, params.nstation, params.nfrequency, params.nsample, params.npol, NR_RECEIVERS_PER_BLOCK);
@@ -79,29 +117,36 @@ Results runTCC(Parameters params, const std::complex<float>* input_h, std::compl
 
         checkCudaCall(cudaStreamCreate(&stream));
         checkCudaCall(cudaMalloc(&input_d, params.input_size * sizeof(std::complex<float>)));
-
-        checkCudaCall(cudaMalloc(&samples_d, params.input_size * sizeof(__half)));
+        checkCudaCall(cudaMalloc(&tcc_in_d, params.input_size * sizeof(std::complex<__half>)));
+        checkCudaCall(cudaMalloc(&tcc_out_d, params.output_size * sizeof(std::complex<float>)));
         checkCudaCall(cudaMalloc(&visibilities_d, params.output_size * sizeof(std::complex<float>)));
         checkCudaCall(cudaMemcpy(input_d, input_h, params.input_size * sizeof(std::complex<float>), cudaMemcpyHostToDevice));
 
-        // need to recast pointers as CUDA can't do std::complex<float> to std::complex<__half> on device
-        float_to_half((float *)input_d, (__half *)samples_d, params.input_size * 2, stream);
+        // float_to_half((float*)input_d, (__half*)samples_d, params.input_size * 2, stream);
 
-        correlator.launchAsync((CUstream) stream, (CUdeviceptr) visibilities_d, (CUdeviceptr) samples_d);
+        transpose_to_TCC(params, input_d, tcc_in_d, stream);
+
+        correlator.launchAsync((CUstream) stream, (CUdeviceptr) tcc_out_d, (CUdeviceptr) tcc_in_d);
 
         checkCudaCall(cudaDeviceSynchronize());
 
+        // reorder from TCC to MWAX format
+        tcc_to_mwax(params, tcc_out_d, visibilities_d, stream);
+
         checkCudaCall(cudaMemcpy(visibilities_h, visibilities_d, params.output_size * sizeof(std::complex<float>), cudaMemcpyDeviceToHost));
 
+        
 
+        // Free allocated buffers
+        checkCudaCall(cudaFree(input_d));
+        checkCudaCall(cudaFree(tcc_in_d));
+        checkCudaCall(cudaFree(tcc_out_d));
         checkCudaCall(cudaFree(visibilities_d));
-        checkCudaCall(cudaFree(samples_d));
+
         checkCudaCall(cudaStreamDestroy(stream));
     } catch(std::exception &error) { 
         std::cerr << error.what() << std::endl;
     }
-
-
 
     result.in_reorder_time = 0;
     result.compute_time = 0;

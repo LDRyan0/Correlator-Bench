@@ -26,6 +26,7 @@ Early development. Only targeting [TCC](https://git.astron.nl/RD/tensor-core-cor
   - ~execution of xGPU~
   - ~output reorder xGPU to MWAX~
 - TCC
+  - ~float to half conversion~
   - input reorder to TCC
   - ~execution of TCC~
   - output reorder xGPU to MWAX

@@ -3,13 +3,13 @@
 
 // common interface to convery X-engine sizing parameters
 typedef struct {
-    unsigned long npol;
-    unsigned long nstation;
-    unsigned long nbaseline;
-    unsigned long nfrequency;
-    unsigned long nsample;
-    unsigned long input_size;
-    unsigned long output_size;
+    unsigned int npol;
+    unsigned int nstation;
+    unsigned int nsample;
+    unsigned int nfrequency;
+    unsigned int nbaseline;
+    unsigned int input_size;
+    unsigned int output_size;
 } Parameters;
 
 // struct for the return type of each call to benchmark

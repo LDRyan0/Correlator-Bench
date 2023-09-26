@@ -1,5 +1,5 @@
 NVCC=          nvcc
-NVCCFLAGS=     -std=c++14 -g
+NVCCFLAGS=     -std=c++14 -g -G
 
 TCC_LIBDIR=    ./tensor-core-correlator/libtcc/
 XGPU_LIBDIR=   ./mwax-xGPU/src/
