@@ -20,6 +20,7 @@ Early development. Only targeting [TCC](https://git.astron.nl/RD/tensor-core-cor
 | OS          | Linux distro (amd64) |
 
 # Roadmap
+## Critical
 - ~complex normally distributed input values~
 - ~xGPU~
   - ~input reorder to xGPU~
@@ -34,6 +35,9 @@ Early development. Only targeting [TCC](https://git.astron.nl/RD/tensor-core-cor
 - benchmarking analysis
 - output validation
 - result precision comparison (TCC requires downconversion to FP16)
+
+## Non-critical
+- use `-Wl` and `-rpath` in Makefile so user doesn't have to manually change `LD_LIBRARY_PATH`
 - generalise interface
   - change main.cu to main.c/main.cpp
   - pass arrays as void* and let user typecast to custom complex format
