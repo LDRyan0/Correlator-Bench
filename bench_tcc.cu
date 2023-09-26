@@ -23,10 +23,9 @@
     } \
 }
 
-// new: [station][polarisation][time][frequency] -> [frequency][time / tpb][station][polarisation][tpb]
-// old: [time][frequency][station][polarisation] -> [frequency][time / tpb][station][polarisation][tpb]
-// need to cast input and output as float as float to half conversion is not supported for complex types
-// TODO: change so that number of channels can be > 1024
+// [station][polarisation][time][frequency] -> [frequency][time / tpb][station][polarisation][tpb]
+// need to cast input and output as float, as float-to-half conversion is not supported for complex types
+// TODO: change so that number of channels can be > 1024 ... very important for MWAX with 6400 channels
 __global__ void transpose_to_TCC_kernel(Parameters params, const float* input, __half* output) {
     int t, f, s, p;
     f = threadIdx.x;
@@ -78,8 +77,6 @@ inline void tcc_to_mwax(Parameters params, const std::complex<float>* input, std
     dim3 block(1024);
     dim3 grid(params.nbaseline / 1024, params.nfrequency);
     tcc_to_mwax_kernel<<<grid, block, 0, stream>>>(params, input, output);
-                
-    
 }
 
 void showTccInfo(Parameters params) {
@@ -106,6 +103,8 @@ Results runTCC(Parameters params, const std::complex<float>* input_h, std::compl
     Results result;
     std::cout << "Initialising & compiling TCC kernel with NVRTC...\n";
 
+    cudaSetDevice(0); // combine the CUDA runtime API and CUDA driver API
+
     cudaStream_t stream;
     std::complex<float>* input_d; // store fp32 input
     std::complex<__half> *tcc_in_d; // typecast down to fp16
@@ -122,8 +121,6 @@ Results runTCC(Parameters params, const std::complex<float>* input_h, std::compl
         checkCudaCall(cudaMalloc(&visibilities_d, params.output_size * sizeof(std::complex<float>)));
         checkCudaCall(cudaMemcpy(input_d, input_h, params.input_size * sizeof(std::complex<float>), cudaMemcpyHostToDevice));
 
-        // float_to_half((float*)input_d, (__half*)samples_d, params.input_size * 2, stream);
-
         transpose_to_TCC(params, input_d, tcc_in_d, stream);
 
         correlator.launchAsync((CUstream) stream, (CUdeviceptr) tcc_out_d, (CUdeviceptr) tcc_in_d);
@@ -134,8 +131,6 @@ Results runTCC(Parameters params, const std::complex<float>* input_h, std::compl
         tcc_to_mwax(params, tcc_out_d, visibilities_d, stream);
 
         checkCudaCall(cudaMemcpy(visibilities_h, visibilities_d, params.output_size * sizeof(std::complex<float>), cudaMemcpyDeviceToHost));
-
-        
 
         // Free allocated buffers
         checkCudaCall(cudaFree(input_d));

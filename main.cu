@@ -5,6 +5,7 @@
 
 #include "bench_tcc.h"
 #include "bench_xgpu.h"
+#include "bench_serial.h"
 #include "util.h"
 
 #define checkCudaCall(function, ...) { \
@@ -24,27 +25,39 @@ void createRandomSamples(std::complex<float>* samples, size_t N) {
     }
 }
 
+// [station][polarisation][time][frequency]
 void createTestVector(std::complex<float>* samples, size_t N) { 
     memset(samples, 0, N * sizeof(std::complex<float>));
-    samples[0] = {1, 2};
-    samples[1] = {1, 3};
+    samples[0] = {1, 1};
+    samples[1] = {1, 2};
 }
 
 void printOutputSnapshot(Parameters params, std::complex<float>* data) {
     int idx = 0;
-    std::cout.precision(5);
-    for(int b = 0; b < 20; b++) { 
-        std::cout << "Baseline: " << b << "\n";
-        for(int f = 0; f < 4; f++) {
-            std::cout << "ch " << f << " | ";
+    std::cout.precision(3);
+    for(int b = 0; b < params.nbaseline; b++) { 
+        int ant1 = (int)(std::floor(-0.5+std::sqrt(0.25+2*b)));
+        int ant2 = (int)(b - ant1*(ant1+1)/2);
+        std::printf("Baseline: %d (%d,%d)\n", b, ant1, ant2);
+        std::printf("\t    pol |           xx          |           xy          |           yx          |           yy          |\n");
+        for(int f = 0; f < params.nfrequency; f++) {
+            std::printf("\tch %4d |", f);
             for(int p = 0; p < params.npol*params.npol; p++) {
-                std::cout << std::fixed << data[idx] << " ";
+                std::printf("(%+.3e,%+.3e)|", std::real(data[idx]), std::imag(data[idx]));
                 idx++;
             }
-            std::cout << "\n";
+            std::printf("\n");
+            if(f==1) {
+                std::printf("\t...\n");
+                f=params.nfrequency-2;
+            }
         }
-        std::cout << "\n\n";
+        if(b==3) {
+            std::printf("...\n");
+            b=params.nbaseline-2;
+        }
     }  
+    std::cout << "\n\n";
 }
 
 int main () {
@@ -58,33 +71,35 @@ int main () {
     params.output_size = params.nbaseline * params.nfrequency * params.npol * params.npol;
 
     std::cout << "Initialising CUDA...\n";
-    cudaSetDevice(0); // combine the CUDA runtime API and CUDA driver API
-    cudaFree(0);
 
     std::cout << "Generating random complex samples...\n";
     // not very good C++, but we want easy compatibility with C libraries so keep raw pointers
-    std::complex<float>* samples_h = new std::complex<float>[params.input_size];
-    std::complex<float>* visibilities_h = new std::complex<float>[params.output_size];
+    std::complex<float>* samples = new std::complex<float>[params.input_size];
+    std::complex<float>* visibilities = new std::complex<float>[params.output_size];
     
     // data in [antenna][polarisation][time][channel]
-    createRandomSamples(samples_h, params.input_size);
-    // createTestVector(samples_h, params.input_size);
+    createRandomSamples(samples, params.input_size);
+    // createTestVector(samples, params.input_size);
 
     std::cout << "First 10 input samples:\n";
     for(int i = 0; i < 10; ++i) { 
-        std::cout << samples_h[i] << "\n";
+        std::cout << samples[i] << "\n";
     }
 
-    Results xgpu_result = runXGPU(params, samples_h, visibilities_h);
+    Results serial_result = runSerial(params, samples, visibilities);
+    printOutputSnapshot(params, visibilities);
+    memset(visibilities, 0, params.output_size * sizeof(std::complex<float>));
 
-    printOutputSnapshot(params, visibilities_h);
+    Results xgpu_result = runXGPU(params, samples, visibilities);
 
-    memset(visibilities_h, 0, params.output_size * sizeof(std::complex<float>));
-    Results tcc_result = runTCC(params, samples_h, visibilities_h);
+    printOutputSnapshot(params, visibilities);
 
-    printOutputSnapshot(params, visibilities_h);
+    memset(visibilities, 0, params.output_size * sizeof(std::complex<float>));
+    Results tcc_result = runTCC(params, samples, visibilities);
 
-    delete samples_h;
-    delete visibilities_h;
+    printOutputSnapshot(params, visibilities);
+
+    delete samples;
+    delete visibilities;
 }
 

@@ -89,6 +89,8 @@ __host__ void xgpu_reg_to_tri(Parameters *params, void *reg_buffer) {
     Complex *complex_tri_buffer = (Complex *)malloc(params->output_size * sizeof(Complex));
     memset(complex_tri_buffer, '0', params->output_size);
 
+    int matLength = params->nfrequency * ((params->nstation/2+1)*(params->nstation/4)*params->npol*params->npol*4);
+
     for(f=0; f<params->nfrequency; f++) {
         for(i=0; i<params->nstation/2; i++) {
             for (rx=0; rx<2; rx++) {
@@ -101,7 +103,7 @@ __host__ void xgpu_reg_to_tri(Parameters *params, void *reg_buffer) {
                                 tri_index = (k*params->npol+pol1)*params->npol+pol2;
                                 reg_index = (l*params->npol+pol1)*params->npol+pol2;
                                 complex_tri_buffer[tri_index].real = float_reg_buffer[reg_index];
-                                complex_tri_buffer[tri_index].imag = float_reg_buffer[reg_index+params->output_size];
+                                complex_tri_buffer[tri_index].imag = float_reg_buffer[reg_index+matLength];
                             }
                         }
                     }
@@ -144,7 +146,6 @@ void xgpu_tri_to_mwax(Parameters *params, void * tri_buffer)
     // this is bad. very bad. the pointer is manually incremented and in this implementation we want to 
     // free at the end. so keep a copy of the original pointer
     // how did we get here...
-
     float *float_mwax_buffer_orig = float_mwax_buffer;
     Complex *complex_tri_buffer = (Complex*)tri_buffer;
 
@@ -156,9 +157,6 @@ void xgpu_tri_to_mwax(Parameters *params, void * tri_buffer)
             {
                 // visibility_index = 4*baseline_index + f*ctx->num_xgpu_visibilities_per_chan;  // x4 for 4 xpols
                 visibility_index = params->npol * params->npol * baseline_index + f * params->nbaseline * params->npol * params->npol;  // x4 for 4 xpols
-                if(visibility_index >= params->output_size) { 
-                    std::cout << visibility_index << "\n";
-                } 
                 
                 // conjugate and swap xy/yx because swapping tile A / tile B in going from xGPU triangular format to MWAX format
                 *float_mwax_buffer++ = complex_tri_buffer[visibility_index].real;      // xx real

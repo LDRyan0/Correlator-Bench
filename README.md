@@ -25,15 +25,18 @@ Early development. Only targeting [TCC](https://git.astron.nl/RD/tensor-core-cor
   - ~input reorder to xGPU~
   - ~execution of xGPU~
   - ~output reorder xGPU to MWAX~
-- TCC
+- ~TCC~
   - ~float to half conversion~
-  - input reorder to TCC
+  - ~input reorder to TCC~
   - ~execution of TCC~
-  - output reorder xGPU to MWAX
+  - ~output reorder xGPU to MWAX~
+- ~Serial~
 - benchmarking analysis
 - output validation
 - result precision comparison (TCC requires downconversion to FP16)
 - generalise interface
   - change main.cu to main.c/main.cpp
   - pass arrays as void* and let user typecast to custom complex format
-  - store size of input in parameters for full generalisability
+  - store size of input/output type in parameters 
+  - compile flags for AMD/CUDA
+  - save output to disk to compare accuracy and performance across AMD/CUDA

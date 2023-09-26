@@ -1,6 +1,9 @@
 NVCC=          nvcc
 NVCCFLAGS=     -std=c++14 -g -G
 
+CXX=		   g++
+CXXFLAGS=      -g -std=c++14
+
 TCC_LIBDIR=    ./tensor-core-correlator/libtcc/
 XGPU_LIBDIR=   ./mwax-xGPU/src/
 
@@ -12,7 +15,7 @@ LIBS+=         -L$(TCC_LIBDIR) -ltcc
 
 INCS=          -I$(TCC_INCDIR) -I$(XGPU_INCDIR)
 
-OBJS=          main.o bench_tcc.o bench_xgpu.o util.o
+OBJS=          main.o bench_tcc.o bench_xgpu.o bench_serial.o util.o 
 EXEC=          main
 
 $(EXEC): $(OBJS)
@@ -26,6 +29,9 @@ bench_tcc.o: bench_tcc.cu
 
 bench_xgpu.o: bench_xgpu.cu
 	$(NVCC) $(NVCCFLAGS) -I$(XGPU_INCDIR) -c bench_xgpu.cu
+
+bench_serial.o: bench_serial.cpp
+	$(CXX) $(CXXFLAGS) -c bench_serial.cpp
 
 util.o: util.cu
 	$(NVCC) $(NVCCFLAGS) -c util.cu
