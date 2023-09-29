@@ -24,8 +24,8 @@
 
 typedef struct XGPUInternalContextPartStruct {
   int device;
-  std::complex<float> *array_d[2];
-  std::complex<float> *matrix_d;
+  ComplexInput *array_d[2];
+  Complex *matrix_d;
 } XGPUInternalContextPart;
 
 #define checkCudaCall(function, ...) { \
@@ -70,6 +70,9 @@ int transpose_to_xGPU(cuFloatComplex* input, cuFloatComplex* output, unsigned ro
     int nblocks = (int)columns;
     int nthreads = (int)rows;
 
+    std::cout << "nblocks = " << nblocks << "\n";
+    std::cout << "nthreads = " << nthreads << "\n";
+
     transpose_to_xGPU_kernel<<<nblocks,nthreads,0>>>(input,output,rows,columns);
 
     return 0;
@@ -100,10 +103,25 @@ __host__ void xgpu_reg_to_tri(Parameters *params, void *reg_buffer) {
                         int l = f*4*(params->nstation/2+1)*(params->nstation/4) + (2*ry+rx)*(params->nstation/2+1)*(params->nstation/4) + i*(i+1)/2 + j;
                         for (pol1=0; pol1<params->npol; pol1++) {
                             for (pol2=0; pol2<params->npol; pol2++) {
-                                tri_index = (k*params->npol+pol1)*params->npol+pol2;
+                                // [frequency][baseline][polarisation][polarisation]
+                                // k*npol*npol + pol1*npol + pol2
+                                // [k][pol1][pol2]
+                                tri_index = (k*params->npol+pol1)*params->npol+pol2; 
                                 reg_index = (l*params->npol+pol1)*params->npol+pol2;
                                 complex_tri_buffer[tri_index].real = float_reg_buffer[reg_index];
                                 complex_tri_buffer[tri_index].imag = float_reg_buffer[reg_index+matLength];
+                                // if(complex_tri_buffer[tri_index].imag == 5 || complex_tri_buffer[tri_index].imag == -5) {
+                                //     std::printf("\txgpu_reg_to_tri  | f: %d  tri_index: %d  k: %d  r1: %d  r2:  %d\n", f, tri_index, k, 2*i+rx, 2*j+ry);
+                                // }
+                                int s1 = 2*i+rx;
+                                int s2 = 2*j+ry;
+                                // if(s1 == 0 && s2 == 0) {
+                                //     std::cout << "TAG | f: " << f << "  pol1: " << pol1 << "  pol2: " << pol2 << "  tri_index: " << tri_index << "\n";
+                                // }
+                                if(tri_index == 407680) {
+                                    std::cout << "ACCESS | " << s1 << "," << s2 << "\n";
+                                    std::cout << "\t" << float_reg_buffer[reg_index] << "," << float_reg_buffer[reg_index+matLength] << "\n"; 
+                                }
                             }
                         }
                     }
@@ -129,10 +147,8 @@ __host__ void xgpu_reg_to_tri(Parameters *params, void *reg_buffer) {
 // "MWAX order" is [time][baseline][channel][polarisation]
 void xgpu_tri_to_mwax(Parameters *params, void * tri_buffer)
 {
-    std::cout << "xgpu_tri_to_mwax()\n";
     int i, j, f;
 
-    // TODO: I'm pretty sure this is nstation * npol??
     int num_tiles = params->nstation;
     
     int column_length = num_tiles;
@@ -156,8 +172,10 @@ void xgpu_tri_to_mwax(Parameters *params, void * tri_buffer)
             for (f=0; f<params->nfrequency; f++)
             {
                 // visibility_index = 4*baseline_index + f*ctx->num_xgpu_visibilities_per_chan;  // x4 for 4 xpols
-                visibility_index = params->npol * params->npol * baseline_index + f * params->nbaseline * params->npol * params->npol;  // x4 for 4 xpols
-                
+                visibility_index = params->npol*params->npol*baseline_index + f*params->nbaseline*params->npol*params->npol;
+                // if(float_mwax_buffer[1] == 5)  {
+                //     std::printf("\txgpu_tri_to_mwax | i: %d  j: %d  v: %d  b: %d  f: %d \n", i, j, visibility_index, baseline_index, f);
+                // }
                 // conjugate and swap xy/yx because swapping tile A / tile B in going from xGPU triangular format to MWAX format
                 *float_mwax_buffer++ = complex_tri_buffer[visibility_index].real;      // xx real
                 *float_mwax_buffer++ = -complex_tri_buffer[visibility_index].imag;     // xx imag - conjugate
@@ -223,16 +241,15 @@ void showxgpuInfo(XGPUInfo xgpu_info) {
 }
 
 Results runXGPU(Parameters params, std::complex<float>* samples_h, std::complex<float>* visibilities_h) {
-    Results result;
+    Results result = {0, 0, 0};
     int device = 0;
 
     // xGPU has two input buffers, assume this is for read/write ping pong style?
-    std::complex<float> *input_d;  // initial copy of host samples (before reorder)
-    std::complex<float> *output_d; // output visibilities (after reorder)
+    ComplexInput *input_d;  // initial copy of host samples (before reorder)
+    ComplexInput *array_d0; // xGPU buffer holding 1st half of input data
 
-    std::complex<float> *array_d0; // xGPU buffer holding 1st half of input data
-    std::complex<float> *matrix_d;
-    std::complex<float> *matrix_h = (std::complex<float>*)malloc(params.output_size * sizeof(Complex)); 
+    Complex *matrix_d;
+    Complex *matrix_h = (Complex*)malloc(params.output_size * sizeof(Complex)); 
 
     // allocate GPU X-engine memory
     std::cout << "Initialising XGPU...\n";
@@ -251,7 +268,7 @@ Results runXGPU(Parameters params, std::complex<float>* samples_h, std::complex<
     assert(xgpu_info.triLength == params.output_size &&  "xGPU triLength does not match");
     // xgpu_info.matLength will be different because of REGISTER_TILE_TRIANGULAR_ORDER
 
-    checkCudaCall(cudaMalloc(&input_d, params.input_size * sizeof(std::complex<float>)));
+    checkCudaCall(cudaMalloc(&input_d, params.input_size * sizeof(ComplexInput)));
     checkCudaCall(cudaMemcpy(input_d, samples_h, params.input_size * sizeof(ComplexInput), cudaMemcpyHostToDevice));
 
     XGPUContext xgpu_ctx;
@@ -260,14 +277,6 @@ Results runXGPU(Parameters params, std::complex<float>* samples_h, std::complex<
     checkXGPUCall(xgpuInit(&xgpu_ctx, device)); // allocates all internal buffers
     XGPUInternalContextPart *xgpuInternalPointer = (XGPUInternalContextPart *)xgpu_ctx.internal;
 
-    // reorder input into xGPU format
-    /*
-    * rows = nstation * npol
-    * columns = nsamples * nfrequency
-    * mwax_transpose_to_xGPU((float complex *)ctx->d_chan, (float complex *)out_pointer, (unsigned)ctx->num_xgpu_signal_paths, 
-        (unsigned)ctx->num_retained_samps_per_block_per_ant, ctx->stream1);
-    */ 
-
     // set device pointers equal to buffers created by xGPU
     array_d0 = xgpuInternalPointer->array_d[0]; // location of the 1st xGPU input array, for telling the pre-correlation code where to write results
     matrix_d = xgpuInternalPointer->matrix_d;   // the xGPU output matrix, for use in frequency averaging and fetching of visibilities
@@ -275,17 +284,37 @@ Results runXGPU(Parameters params, std::complex<float>* samples_h, std::complex<
     // device function!
     transpose_to_xGPU((cuFloatComplex*) input_d, (cuFloatComplex*) array_d0 , params.nstation*params.npol, params.nfrequency*params.nsample);
 
-    result.in_reorder_time = 0;
-    result.compute_time = 0;
-    result.out_reorder_time = 0;
-
     checkXGPUCall(xgpuCudaXengine(&(xgpu_ctx), SYNCOP_SYNC_COMPUTE));
 
-    checkCudaCall(cudaMemcpy(visibilities_h, matrix_d, params.output_size * sizeof(ComplexInput), cudaMemcpyDeviceToHost));
+    checkCudaCall(cudaMemcpy(visibilities_h, matrix_d, params.output_size * sizeof(Complex), cudaMemcpyDeviceToHost));
+
+    for(int i = 0; i < params.output_size; i++) {
+        if(std::imag(visibilities_h[i]) == 5) { 
+            std::cout << "ERROR in xgpuCudaXengine: 5i at " << i << "\n";
+        } else if (std::imag(visibilities_h[i]) == -5) {
+            std::cout << "ERROR in xgpuCudaXengine: -5i at " << i << "\n";
+        }
+    }
 
     // host functions!!
     xgpu_reg_to_tri(&params, visibilities_h);
+    for(int i = 0; i < params.output_size; i++) {
+        if(std::imag(visibilities_h[i]) == 5) { 
+            std::cout << "ERROR in xgpu_reg_to_tri: 5i at " << i << "\n";
+        } else if (std::imag(visibilities_h[i]) == -5) {
+            std::cout << "ERROR in xgpu_reg_to_tris: -5i at " << i << "\n";
+        }
+    }
+
     xgpu_tri_to_mwax(&params, visibilities_h);
+
+    for(int i = 0; i < params.output_size; i++) {
+        if(std::imag(visibilities_h[i]) == 5) { 
+            std::cout << "ERROR in xgpu_tri_to_mwax: 5i at " << i << "\n";
+        } else if (std::imag(visibilities_h[i]) == -5) {
+            std::cout << "ERROR in xgpu_tri_to_mwax: -5i at " << i << "\n";
+        }
+    }
 
 
     xgpuFree(&xgpu_ctx);

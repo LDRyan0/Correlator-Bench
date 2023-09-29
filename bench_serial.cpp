@@ -1,11 +1,18 @@
 #include <complex>
 #include <iostream>
+#include <chrono>
+#include <unistd.h>
 
 #include "util.h"
 
 // [station][polarisation][time][frequency] -> [baseline][frequency][polarisation*4]
 Results runSerial(Parameters params, const std::complex<float>* in, std::complex<float>* out) { 
-    Results result = {0,0,0};
+    Results result;
+    typedef std::chrono::high_resolution_clock Clock;
+
+    // no reordering required!
+    result.in_reorder_time = 0;
+    result.out_reorder_time = 0;
 
     int ns = params.nstation;
     int np = params.npol;
@@ -14,6 +21,9 @@ Results runSerial(Parameters params, const std::complex<float>* in, std::complex
 
     int samp1_idx, samp2_idx, vis_idx;
     int b_idx = 0; // "triangular" baseline index
+
+    auto t0 = Clock::now();
+
 
     for(int s1 = 0; s1 < ns; s1++) {
         for(int s2 = s1; s2 < ns; s2++) {
@@ -32,5 +42,9 @@ Results runSerial(Parameters params, const std::complex<float>* in, std::complex
             b_idx++;
         }
     }
+
+    auto t1 = Clock::now();
+    std::chrono::duration<float> elapsed = t1 - t0;
+    result.compute_time = elapsed.count();
     return result;
 }
