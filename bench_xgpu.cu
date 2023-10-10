@@ -2,8 +2,9 @@
 
 #include <iostream>
 #include <cassert>
+#include <chrono>
 #include <cuda.h>
-#include "cuComplex.h"
+#include <cuComplex.h>
 
 #include "xgpu.h"
 #include "xgpu_info.h"
@@ -65,7 +66,6 @@ __global__ void transpose_to_xGPU_kernel(const cuFloatComplex* input, cuFloatCom
  * rows = nstation * npol
  * columns = nsamples * nfrequency
  */ 
-extern "C"
 int transpose_to_xGPU(cuFloatComplex* input, cuFloatComplex* output, unsigned rows, unsigned columns) {
     int nblocks = (int)columns;
     int nthreads = (int)rows;
@@ -76,66 +76,6 @@ int transpose_to_xGPU(cuFloatComplex* input, cuFloatComplex* output, unsigned ro
     transpose_to_xGPU_kernel<<<nblocks,nthreads,0>>>(input,output,rows,columns);
 
     return 0;
-}
-
-/******************************************************************************/
-/* Re-order a register-tile order visibility set to triangular order          */
-/* (duplicate of xgpuReorderMatrix() from xGPU cpu_util.c but using shortened */
-/*  matLength from channel averaging)                                         */
-    /******************************************************************************/
-__host__ void xgpu_reg_to_tri(Parameters *params, void *reg_buffer) {
-    int f, i, rx, j, ry, pol1, pol2;
-    int reg_index;
-    int tri_index;
-    float *float_reg_buffer = (float *)reg_buffer;
-    
-    Complex *complex_tri_buffer = (Complex *)malloc(params->output_size * sizeof(Complex));
-    memset(complex_tri_buffer, '0', params->output_size);
-
-    int matLength = params->nfrequency * ((params->nstation/2+1)*(params->nstation/4)*params->npol*params->npol*4);
-
-    for(f=0; f<params->nfrequency; f++) {
-        for(i=0; i<params->nstation/2; i++) {
-            for (rx=0; rx<2; rx++) {
-                for (j=0; j<=i; j++) {
-                    for (ry=0; ry<2; ry++) {
-                        int k = f*(params->nstation+1)*(params->nstation/2) + (2*i+rx)*(2*i+rx+1)/2 + 2*j+ry;
-                        int l = f*4*(params->nstation/2+1)*(params->nstation/4) + (2*ry+rx)*(params->nstation/2+1)*(params->nstation/4) + i*(i+1)/2 + j;
-                        for (pol1=0; pol1<params->npol; pol1++) {
-                            for (pol2=0; pol2<params->npol; pol2++) {
-                                // [frequency][baseline][polarisation][polarisation]
-                                // k*npol*npol + pol1*npol + pol2
-                                // [k][pol1][pol2]
-                                tri_index = (k*params->npol+pol1)*params->npol+pol2; 
-                                reg_index = (l*params->npol+pol1)*params->npol+pol2;
-                                complex_tri_buffer[tri_index].real = float_reg_buffer[reg_index];
-                                complex_tri_buffer[tri_index].imag = float_reg_buffer[reg_index+matLength];
-                                // if(complex_tri_buffer[tri_index].imag == 5 || complex_tri_buffer[tri_index].imag == -5) {
-                                //     std::printf("\txgpu_reg_to_tri  | f: %d  tri_index: %d  k: %d  r1: %d  r2:  %d\n", f, tri_index, k, 2*i+rx, 2*j+ry);
-                                // }
-                                int s1 = 2*i+rx;
-                                int s2 = 2*j+ry;
-                                // if(s1 == 0 && s2 == 0) {
-                                //     std::cout << "TAG | f: " << f << "  pol1: " << pol1 << "  pol2: " << pol2 << "  tri_index: " << tri_index << "\n";
-                                // }
-                                if(tri_index == 407680) {
-                                    std::cout << "ACCESS | " << s1 << "," << s2 << "\n";
-                                    std::cout << "\t" << float_reg_buffer[reg_index] << "," << float_reg_buffer[reg_index+matLength] << "\n"; 
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // TODO: replace this by changing pointers instead of redundant copy
-    memcpy(float_reg_buffer, complex_tri_buffer, params->output_size*sizeof(Complex));
-
-    free(complex_tri_buffer);
-
-    return;
 }
 
 /************************************************************************************/
@@ -243,6 +183,12 @@ void showxgpuInfo(XGPUInfo xgpu_info) {
 Results runXGPU(Parameters params, std::complex<float>* samples_h, std::complex<float>* visibilities_h) {
     Results result = {0, 0, 0};
     int device = 0;
+    typedef std::chrono::high_resolution_clock Clock;
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+    float time_ms;
+
 
     // xGPU has two input buffers, assume this is for read/write ping pong style?
     ComplexInput *input_d;  // initial copy of host samples (before reorder)
@@ -281,41 +227,25 @@ Results runXGPU(Parameters params, std::complex<float>* samples_h, std::complex<
     array_d0 = xgpuInternalPointer->array_d[0]; // location of the 1st xGPU input array, for telling the pre-correlation code where to write results
     matrix_d = xgpuInternalPointer->matrix_d;   // the xGPU output matrix, for use in frequency averaging and fetching of visibilities
     
+    xgpuClearDeviceIntegrationBuffer(&xgpu_ctx);
+
     // device function!
+    cudaEventRecord(start);
     transpose_to_xGPU((cuFloatComplex*) input_d, (cuFloatComplex*) array_d0 , params.nstation*params.npol, params.nfrequency*params.nsample);
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    cudaEventElapsedTime(&time_ms, start, stop);
+    result.in_reorder_time = time_ms / 1000;
 
     checkXGPUCall(xgpuCudaXengine(&(xgpu_ctx), SYNCOP_SYNC_COMPUTE));
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    cudaEventElapsedTime(&time_ms, start, stop);
+    result.compute_time = time_ms / 1000;
 
     checkCudaCall(cudaMemcpy(visibilities_h, matrix_d, params.output_size * sizeof(Complex), cudaMemcpyDeviceToHost));
 
-    for(int i = 0; i < params.output_size; i++) {
-        if(std::imag(visibilities_h[i]) == 5) { 
-            std::cout << "ERROR in xgpuCudaXengine: 5i at " << i << "\n";
-        } else if (std::imag(visibilities_h[i]) == -5) {
-            std::cout << "ERROR in xgpuCudaXengine: -5i at " << i << "\n";
-        }
-    }
-
-    // host functions!!
-    xgpu_reg_to_tri(&params, visibilities_h);
-    for(int i = 0; i < params.output_size; i++) {
-        if(std::imag(visibilities_h[i]) == 5) { 
-            std::cout << "ERROR in xgpu_reg_to_tri: 5i at " << i << "\n";
-        } else if (std::imag(visibilities_h[i]) == -5) {
-            std::cout << "ERROR in xgpu_reg_to_tris: -5i at " << i << "\n";
-        }
-    }
-
     xgpu_tri_to_mwax(&params, visibilities_h);
-
-    for(int i = 0; i < params.output_size; i++) {
-        if(std::imag(visibilities_h[i]) == 5) { 
-            std::cout << "ERROR in xgpu_tri_to_mwax: 5i at " << i << "\n";
-        } else if (std::imag(visibilities_h[i]) == -5) {
-            std::cout << "ERROR in xgpu_tri_to_mwax: -5i at " << i << "\n";
-        }
-    }
-
 
     xgpuFree(&xgpu_ctx);
 

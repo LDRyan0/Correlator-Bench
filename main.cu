@@ -4,12 +4,17 @@
 #include <random>
 #include <chrono>
 #include <cstring>
+#include <fstream>
+#include <cstdlib>
+#include <unistd.h>
 
 #include "bench_tcc.h"
 #include "bench_mwax_tcc.h"
 #include "bench_xgpu.h"
 #include "bench_serial.h"
 #include "util.h"
+
+// #define DEBUG
 
 #define checkCudaCall(function, ...) { \
     cudaError_t error = function; \
@@ -31,13 +36,9 @@ void createRandomSamples(std::complex<float>* samples, size_t N) {
 }
 
 void printOutputSnapshot(Parameters params, std::complex<float>* data) {
-    #ifdef DEBUG
     int idx = 0;
     std::cout.precision(3);
     for(int b = 0; b < params.nbaseline; b++) { 
-        // int ant2 = (int)(std::floor(-0.5+std::sqrt(0.25+2*b)));
-        // int ant1 = (int)(b - ant2*(ant2+1)/2);
-        // std::printf("Baseline: %d (%d,%d)\n", b, ant1, ant2);
         std::printf("Baseline: %d \n", b);
         std::printf("       idx |  ch |           xx          |           xy          |           yx          |           yy          |\n");
         for(int f = 0; f < params.nfrequency; f++) {
@@ -56,12 +57,10 @@ void printOutputSnapshot(Parameters params, std::complex<float>* data) {
         if(b==2) {
             std::printf("...\n");
             b=params.nbaseline-2;
-            // b=2045;
             idx = (b+1)*params.nfrequency*params.npol*params.npol;
         }
     }  
     std::cout << "\n\n";
-    #endif
 }
 
 float rmsError(std::complex<float>* a1, std::complex<float>* a2, size_t N) {
@@ -72,54 +71,133 @@ float rmsError(std::complex<float>* a1, std::complex<float>* a2, size_t N) {
     for(size_t i = 0; i < N; i++) {
         abs_error = std::abs(a1[i] - a2[i]);
         rel_error = abs_error / (std::max(std::abs(a1[i]), std::abs(a2[i]))); // case where one visibility is 0 but other is small
-        if(abs_error > 1 && rel_error > 0.1) { 
+        if(abs_error > 0.5 && rel_error > 0.01) { 
             #ifdef DEBUG
-            // std::cout << "Error: " << a1[i] << " != " << a2[i] << " (" << i << ")\n";
-            // return 0;
-            #else
-            errors++;
+            std::cout << "Error: " << a1[i] << " != " << a2[i] << " (" << i << ")\n";
             #endif
+            errors++;
         }
         sum += abs_error*abs_error;
     }
+    if(errors)
+        std::cout << "\033[31m"; // red 
+    else
+        std::cout << "\033[32m"; // green
     std::cout << N - errors << " / " << N << " values correct\n";
+    std::cout << "\033[0m"; // reset 
+
     return std::sqrt(sum / N);
 }
 
-// TODO: add support for .csv output
 void report(Parameters params, Results result) {
-    float total_time = result.in_reorder_time + result.compute_time + result.out_reorder_time;
-    std::cout << "\t Input reordering: " << result.in_reorder_time * 1000 << " ms\n";
-    std::cout << "\t          Compute: " << result.compute_time * 1000 << " ms\n";
-    std::cout << "\tOutput reordering: " << result.out_reorder_time * 1000 << " ms\n";
-    std::cout << "\t            Total: " << total_time * 1000 << " ms\n";
+    float total_time = result.in_reorder_time + result.compute_time + result.tri_reorder_time
+        + result.channel_avg_time + result.mwax_time;
+    std::cout << "     Input reordering: " << result.in_reorder_time * 1000 << " ms\n";
+    std::cout << "              Compute: " << result.compute_time * 1000 << " ms\n";
+    std::cout << "Triangular reordering: " << result.tri_reorder_time * 1000 << " ms\n";
+    std::cout << "    Channel averaging: " << result.channel_avg_time * 1000 << " ms\n";
+    std::cout << "      MWAX reordering: " << result.mwax_time * 1000 << " ms\n";
+    std::cout << "                Total: " << total_time * 1000 << " ms\n";
 
     if(result.compute_time != 0)
-        std::cout << "\t    Compute FLOPS: " << (params.flop / result.compute_time) / 1000000000 << " GFLOP/s\n";
+        std::cout << "        Compute FLOPS: " << (params.flop / result.compute_time) / 1e12 << " TOP/s\n";
 
     if(total_time != 0)
-        std::cout << "\t      Total FLOPS: " << (params.flop / total_time) / 1000000000 << " GFLOP/s\n";
+        std::cout << "          Total FLOPS: " << (params.flop / total_time) / 1e12 << " TOP/s\n";
 
+}
+
+void reportCSV(Parameters params, Results result, std::string filename) {
+    std::ofstream file;
+    file.open(filename, std::ios_base::app); // append 
+    float total_time = result.in_reorder_time + result.compute_time + result.tri_reorder_time
+        + result.channel_avg_time + result.mwax_time;
+    // file << "nstation, nfrequency, ntime, npol, input reorder (ms),compute (ms),tri reorder (ms),"
+        // << "channel avg (ms),mwax reorder (ms) total (ms),compute (TOPS),total (TOPS)\n";
+    
+    file << params.nstation << ",";
+    file << params.nfrequency << ",";
+    file << params.nsample << ",";
+    file << params.npol << ",";
+    
+    file << result.in_reorder_time * 1000 << ",";
+    file << result.compute_time * 1000 << ",";
+    file << result.tri_reorder_time * 1000 << ",";
+    file << result.channel_avg_time * 1000 << ",";
+    file << result.mwax_time * 1000 << ",";
+    file << total_time * 1000 << "";
+
+    if(result.compute_time != 0) {
+        file << ((params.flop / result.compute_time) / 1e12) << ","; 
+    } else  {
+        file << "0,";
+    }
+
+    if(total_time != 0) {
+        file << (params.flop / total_time) / 1e12;
+    } else {
+        file << "0";
+    }
+    
+    file << "\n";
+    file.close();
+}
+
+Parameters getParams(int argc, char *argv[]) {
+    Parameters params;
+
+    // defaults
+    params.npol = 2;
+    params.nfrequency = 50;
+    params.nstation = 64;
+    params.nsample = 16;
+    params.npol = 2;
+    params.verify = false;
+    params.write_csv = false;
+    params.snapshot = false;
+
+    for(int opt; (opt = getopt(argc, argv, "f:n:t:p:vcs")) >= 0;) {
+        switch (opt) {
+            case 'f':   
+                params.nfrequency = atoi(optarg);
+                break;  
+            case 'n':   
+                params.nstation = atoi(optarg);
+                break;  
+            case 't':   
+                params.nsample = atoi(optarg);
+                break;  
+            case 'p':
+                params.npol = atoi(optarg);
+                break;
+            case 'v':
+                params.verify = true;
+                break;
+            case 'c':
+                params.write_csv = true;
+                break;
+            case 's':
+                params.snapshot = true;
+                break;
+        }
+    }    
+    params.nbaseline = (params.nstation * (params.nstation + 1)) / 2;
+    params.input_size = params.nstation * params.nsample * params.nfrequency * params.npol;
+    params.output_size = params.nbaseline * params.nfrequency * params.npol * params.npol;
+    params.flop = 8ULL * params.nstation * (params.nstation / 2) * params.npol * params.npol * params.nfrequency * params.nsample;
+
+    return params;
 }
 
 // [station][polarisation][time][frequency]
 void createTestVector(std::complex<float>* samples, size_t N) { 
     memset(samples, 0, N * sizeof(std::complex<float>));
     samples[0] = {1, 1};
-    // samples[0*(50*16*2) + 49*(16*2)] = {1, 2};
-    samples[49] = {1, 2};
 }
 
-int main () {
-    Parameters params;
-    params.npol = 2;
-    params.nstation = 64;
-    params.nsample = 16;
-    params.nfrequency = 50;
-    params.nbaseline = (params.nstation * (params.nstation + 1)) / 2;
-    params.input_size = params.nstation * params.nsample * params.nfrequency * params.npol;
-    params.output_size = params.nbaseline * params.nfrequency * params.npol * params.npol;
-    params.flop = 8 * params.nstation * params.nstation / 2 * params.npol * params.npol * params.nfrequency * params.nsample;
+
+int main (int argc, char *argv[]) {
+    Parameters params = getParams(argc, argv);
 
     float error_xgpu = 0;
     float error_tcc = 0;
@@ -141,32 +219,43 @@ int main () {
         std::cout << samples[i] << "\n";
     }
 
-    Results serial_result = runSerial(params, samples, visibilities_serial);
-    printOutputSnapshot(params, visibilities_serial);
-    report(params, serial_result);
+    if(params.verify) {
+        Results serial_result = runSerial(params, samples, visibilities_serial);
+        if (params.snapshot) printOutputSnapshot(params, visibilities_serial);
+        report(params, serial_result);
+        if(params.write_csv) reportCSV(params, serial_result, "results/serial.csv");
+    }
 
+    memset(visibilities_gpu, 0, params.output_size * sizeof(std::complex<float>));
     Results xgpu_result = runXGPU(params, samples, visibilities_gpu);
-    error_xgpu = rmsError(visibilities_serial, visibilities_gpu, params.output_size);
-    printOutputSnapshot(params, visibilities_gpu);
+    if(params.verify) {
+        error_xgpu = rmsError(visibilities_serial, visibilities_gpu, params.output_size);
+        std::cout << "XGPU error = " << error_xgpu << "\n";
+    }
+    if(params.snapshot) printOutputSnapshot(params, visibilities_gpu);
+    if(params.write_csv) reportCSV(params, xgpu_result, "results/mwax.csv");
     report(params, xgpu_result);
-
 
     memset(visibilities_gpu, 0, params.output_size * sizeof(std::complex<float>));
     Results tcc_result = runTCC(params, samples, visibilities_gpu);
-    error_tcc = rmsError(visibilities_serial, visibilities_gpu, params.output_size);
-    printOutputSnapshot(params, visibilities_gpu);
+    if(params.verify) { 
+        error_tcc = rmsError(visibilities_serial, visibilities_gpu, params.output_size);
+        std::cout << "TCC error = " << error_tcc << "\n";
+    }
+    if(params.snapshot) printOutputSnapshot(params, visibilities_gpu);
+    if(params.write_csv) reportCSV(params, tcc_result, "results/tcc_v1.csv");
     report(params, tcc_result);
 
     memset(visibilities_gpu, 0, params.output_size * sizeof(std::complex<float>));
     Results mwax_tcc_result = runMWAXTCC(params, samples, visibilities_gpu);
-    std::cout << mwax_tcc_result.in_reorder_time << std::endl;
-    error_mwax_tcc = rmsError(visibilities_serial, visibilities_gpu, params.output_size);
-    printOutputSnapshot(params, visibilities_gpu);
+    if(params.verify) {
+        error_mwax_tcc = rmsError(visibilities_serial, visibilities_gpu, params.output_size);
+        std::cout << "MWAX_TCC error = " << error_mwax_tcc << "\n";
+    }
+    if(params.snapshot) printOutputSnapshot(params, visibilities_gpu);
+    if(params.write_csv) reportCSV(params, mwax_tcc_result, "results/tcc_v2.csv");
     report(params, mwax_tcc_result);
 
-    std::cout << "XGPU error = " << std::scientific << error_xgpu << "\n";
-    std::cout << "TCC error = " << std::scientific << error_tcc << "\n";
-    std::cout << "MWAX_TCC error = " << std::scientific << error_mwax_tcc << "\n";
 
     delete samples;
     delete visibilities_serial;

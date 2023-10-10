@@ -122,7 +122,7 @@ Results runTCC(Parameters params, const std::complex<float>* input_h, std::compl
 
     try {
         tcc::Correlator correlator(NR_BITS, params.nstation, params.nfrequency, params.nsample, params.npol, NR_RECEIVERS_PER_BLOCK);
-        showTccInfo(params);
+        // showTccInfo(params);
 
         checkCudaCall(cudaStreamCreate(&stream));
         checkCudaCall(cudaMalloc(&input_d, params.input_size * sizeof(std::complex<float>)));
@@ -146,15 +146,13 @@ Results runTCC(Parameters params, const std::complex<float>* input_h, std::compl
         result.compute_time = time_ms / 1000;
 
         checkCudaCall(cudaDeviceSynchronize());
-
-
+        
         cudaEventRecord(start);
         tcc_to_tri(params, tcc_out_d, tcc_reordered_d, stream); // swap baseline and frequency with vanilla TCC
         cudaEventRecord(stop);
         cudaEventSynchronize(stop);
         cudaEventElapsedTime(&time_ms, start, stop);
-        result.out_reorder_time += time_ms / 1000;
-
+        result.tri_reorder_time = time_ms / 1000;
 
         // don't include transfer in reorder time
         checkCudaCall(cudaMemcpy(tcc_reordered_h, tcc_reordered_d, params.output_size * sizeof(std::complex<float>), cudaMemcpyDeviceToHost));
@@ -164,7 +162,7 @@ Results runTCC(Parameters params, const std::complex<float>* input_h, std::compl
         tri_to_mwax(params, tcc_reordered_h, visibilities_h);
         auto t1 = Clock::now();
         std::chrono::duration<float> elapsed = t1 - t0;
-        result.out_reorder_time += elapsed.count();
+        result.mwax_time += elapsed.count();
 
         // Free allocated buffers
         checkCudaCall(cudaFree(input_d));

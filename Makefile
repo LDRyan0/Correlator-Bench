@@ -1,8 +1,9 @@
 NVCC=              nvcc
 NVCCFLAGS=         -std=c++14 -g -G
+NVCCFLAGS=         -Xcompiler -fopenmp
 
 CXX=		       g++
-CXXFLAGS=          -g -std=c++14
+CXXFLAGS=          -g -std=c++14 -fopenmp
 
 TCC_LIBDIR=        ./tensor-core-correlator/libtcc
 XGPU_LIBDIR=       ./mwax-xGPU/src
@@ -11,15 +12,16 @@ TCC_INCDIR=        ./tensor-core-correlator
 XGPU_INCDIR=       ./mwax-xGPU/src
 
 LIBS=         -L$(TCC_LIBDIR) -ltcc
-LIBS+=          -L$(XGPU_LIBDIR) -lxgpumwax64t_50
+LIBS+=          -L$(XGPU_LIBDIR) -lxgpumwax$(NSTATION)t_$(NFREQUENCY)
+# LIBS+=          -L$(XGPU_LIBDIR) -lxgpumwax64t_50
 
 INCS=          -I$(TCC_INCDIR) -I$(XGPU_INCDIR)
 
 OBJS=          main.o bench_tcc.o bench_mwax_tcc.o bench_xgpu.o bench_serial.o util.o 
 EXEC=          main
 
-$(EXEC): $(OBJS)
-	$(NVCC) $(NVCCFLAGS) $(LIBS) -o $(EXEC) $(OBJS) 
+$(EXEC): $(OBJS) xgpu
+	$(NVCC) $(NVCCFLAGS) $(LIBS) -o $(EXEC) $(OBJS) -lgomp
 
 main.o: main.cu
 	$(NVCC) $(NVCCFLAGS) -c main.cu
@@ -41,3 +43,8 @@ util.o: util.cpp
 
 clean:
 	rm *.o $(EXEC)
+	rm $(XGPU_LIBDIR)/*.so
+
+xgpu:		
+	# make -C $(XGPU_INCDIR) CUDA_ARCH=sm_80 NFREQUENCY=$(NFREQUENCY) NSTATION=$(NSTATION) NTIME=$(NTIME) NTIME_PIPE=$(NTIME) 
+	make -C $(XGPU_INCDIR) MATRIX_ORDER_TRIANGULAR=1 CUDA_ARCH=sm_80 NFREQUENCY=$(NFREQUENCY) NSTATION=$(NSTATION) NTIME=$(NTIME) NTIME_PIPE=$(NTIME) 

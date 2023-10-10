@@ -1,5 +1,7 @@
 #include <iostream>
 #include <complex>
+#include <omp.h>
+#include <string>
 
 #include "util.h"
 

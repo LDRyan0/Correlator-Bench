@@ -94,8 +94,7 @@ Results runMWAXTCC(Parameters params, const std::complex<float>* input_h, std::c
     std::complex<float> *tcc_out_h = (std::complex<float>*)malloc(params.output_size * sizeof(std::complex<float>)); 
     try {
         tcc::Correlator correlator(NR_BITS, params.nstation, params.nfrequency, params.nsample, params.npol, NR_RECEIVERS_PER_BLOCK, "MWAX");
-        mwax_showTccInfo(params);
-
+        // mwax_showTccInfo(params);
         checkCudaCall(cudaStreamCreate(&stream));
         checkCudaCall(cudaMalloc(&input_d, params.input_size * sizeof(std::complex<float>)));
         checkCudaCall(cudaMalloc(&tcc_in_d, params.input_size * sizeof(std::complex<__half>)));
@@ -120,12 +119,15 @@ Results runMWAXTCC(Parameters params, const std::complex<float>* input_h, std::c
         // reorder from TCC to MWAX format
         checkCudaCall(cudaMemcpy(tcc_out_h, tcc_out_d, params.output_size * sizeof(std::complex<float>), cudaMemcpyDeviceToHost));
         
+        // modified version of TCC that writes directly to triangular order
+        result.tri_reorder_time = 0;
+
         typedef std::chrono::high_resolution_clock Clock;
         auto t0 = Clock::now();
         tri_to_mwax(params, tcc_out_h, visibilities_h);
         auto t1 = Clock::now();
         std::chrono::duration<float> elapsed = t1 - t0;
-        result.out_reorder_time = elapsed.count();
+        result.mwax_time = elapsed.count();
 
         // Free allocated buffers
         checkCudaCall(cudaFree(input_d));

@@ -7,12 +7,8 @@
 
 // [station][polarisation][time][frequency] -> [baseline][frequency][polarisation*4]
 Results runSerial(Parameters params, const std::complex<float>* in, std::complex<float>* out) { 
-    Results result;
+    Results result = {0};
     typedef std::chrono::high_resolution_clock Clock;
-
-    // no reordering required!
-    result.in_reorder_time = 0;
-    result.out_reorder_time = 0;
 
     int ns = params.nstation;
     int np = params.npol;
@@ -23,8 +19,6 @@ Results runSerial(Parameters params, const std::complex<float>* in, std::complex
     int b_idx = 0; // "triangular" baseline index
 
     auto t0 = Clock::now();
-
-
     for(int s1 = 0; s1 < ns; s1++) {
         for(int s2 = s1; s2 < ns; s2++) {
             for(int p1 = 0; p1 < np; p1++) { 

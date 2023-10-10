@@ -10,16 +10,21 @@ typedef struct {
     unsigned int nsample;      // number of time samples
     unsigned int nfrequency;   // number of frequency channels
     unsigned int nbaseline;    // number of baselines
-    unsigned int input_size;   // number of input elements
-    unsigned int output_size;  // number of output elements
-    unsigned int flop;         // total floating point operations executed
+    unsigned long long input_size;   // number of input elements
+    unsigned long long output_size;  // number of output elements
+    unsigned long long flop;         // total floating point operations executed
+    bool verify;
+    bool write_csv;
+    bool snapshot;
 } Parameters;
 
 // struct for the return type of each call to benchmark
 typedef struct { 
     float in_reorder_time;
     float compute_time;
-    float out_reorder_time;
+    float tri_reorder_time;
+    float channel_avg_time;
+    float mwax_time;
 } Results;
 
 float byteToMB(long bytes);
