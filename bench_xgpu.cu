@@ -237,6 +237,7 @@ Results runXGPU(Parameters params, std::complex<float>* samples_h, std::complex<
     cudaEventElapsedTime(&time_ms, start, stop);
     result.in_reorder_time = time_ms / 1000;
 
+    cudaEventRecord(start);
     checkXGPUCall(xgpuCudaXengine(&(xgpu_ctx), SYNCOP_SYNC_COMPUTE));
     cudaEventRecord(stop);
     cudaEventSynchronize(stop);
@@ -245,7 +246,13 @@ Results runXGPU(Parameters params, std::complex<float>* samples_h, std::complex<
 
     checkCudaCall(cudaMemcpy(visibilities_h, matrix_d, params.output_size * sizeof(Complex), cudaMemcpyDeviceToHost));
 
+    cudaEventRecord(start);
     xgpu_tri_to_mwax(&params, visibilities_h);
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    cudaEventElapsedTime(&time_ms, start, stop);
+    result.mwax_time = time_ms / 1000;
+
 
     xgpuFree(&xgpu_ctx);
 

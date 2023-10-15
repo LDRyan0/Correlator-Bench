@@ -92,29 +92,32 @@ float rmsError(std::complex<float>* a1, std::complex<float>* a2, size_t N) {
 void report(Parameters params, Results result) {
     float total_time = result.in_reorder_time + result.compute_time + result.tri_reorder_time
         + result.channel_avg_time + result.mwax_time;
-    std::cout << "     Input reordering: " << result.in_reorder_time * 1000 << " ms\n";
-    std::cout << "              Compute: " << result.compute_time * 1000 << " ms\n";
-    std::cout << "Triangular reordering: " << result.tri_reorder_time * 1000 << " ms\n";
-    std::cout << "    Channel averaging: " << result.channel_avg_time * 1000 << " ms\n";
-    std::cout << "      MWAX reordering: " << result.mwax_time * 1000 << " ms\n";
-    std::cout << "                Total: " << total_time * 1000 << " ms\n";
+    std::cout << "      Input reordering: " << result.in_reorder_time * 1000 << " ms\n";
+    std::cout << "               Compute: " << result.compute_time * 1000 << " ms\n";
+    std::cout << " Triangular reordering: " << result.tri_reorder_time * 1000 << " ms\n";
+    // std::cout << "     Channel averaging: " << result.channel_avg_time * 1000 << " ms\n";
+    std::cout << "       MWAX reordering: " << result.mwax_time * 1000 << " ms\n";
+    std::cout << "                 Total: " << total_time * 1000 << " ms\n";
 
     if(result.compute_time != 0)
-        std::cout << "        Compute FLOPS: " << (params.flop / result.compute_time) / 1e12 << " TOP/s\n";
+        std::cout << "         Compute FLOPS: " << (params.flop / result.compute_time) / 1e12 << " TOP/s\n";
 
     if(total_time != 0)
-        std::cout << "          Total FLOPS: " << (params.flop / total_time) / 1e12 << " TOP/s\n";
+        std::cout << "           Total FLOPS: " << (params.flop / total_time) / 1e12 << " TOP/s\n";
 
 }
 
 void reportCSV(Parameters params, Results result, std::string filename) {
     std::ofstream file;
     file.open(filename, std::ios_base::app); // append 
-    float total_time = result.in_reorder_time + result.compute_time + result.tri_reorder_time
-        + result.channel_avg_time + result.mwax_time;
+    
+    // .csv header
     // file << "nstation, nfrequency, ntime, npol, input reorder (ms),compute (ms),tri reorder (ms),"
         // << "channel avg (ms),mwax reorder (ms) total (ms),compute (TOPS),total (TOPS)\n";
     
+    float total_time = result.in_reorder_time + result.compute_time + result.tri_reorder_time
+        + result.channel_avg_time + result.mwax_time;
+
     file << params.nstation << ",";
     file << params.nfrequency << ",";
     file << params.nsample << ",";
@@ -230,7 +233,7 @@ int main (int argc, char *argv[]) {
     Results xgpu_result = runXGPU(params, samples, visibilities_gpu);
     if(params.verify) {
         error_xgpu = rmsError(visibilities_serial, visibilities_gpu, params.output_size);
-        std::cout << "XGPU error = " << error_xgpu << "\n";
+        std::cout << "Total XGPU error (rms): " << error_xgpu << "\n";
     }
     if(params.snapshot) printOutputSnapshot(params, visibilities_gpu);
     if(params.write_csv) reportCSV(params, xgpu_result, "results/mwax.csv");
@@ -240,7 +243,7 @@ int main (int argc, char *argv[]) {
     Results tcc_result = runTCC(params, samples, visibilities_gpu);
     if(params.verify) { 
         error_tcc = rmsError(visibilities_serial, visibilities_gpu, params.output_size);
-        std::cout << "TCC error = " << error_tcc << "\n";
+        std::cout << " Total TCC error (rms): " << error_tcc << "\n";
     }
     if(params.snapshot) printOutputSnapshot(params, visibilities_gpu);
     if(params.write_csv) reportCSV(params, tcc_result, "results/tcc_v1.csv");
@@ -250,7 +253,7 @@ int main (int argc, char *argv[]) {
     Results mwax_tcc_result = runMWAXTCC(params, samples, visibilities_gpu);
     if(params.verify) {
         error_mwax_tcc = rmsError(visibilities_serial, visibilities_gpu, params.output_size);
-        std::cout << "MWAX_TCC error = " << error_mwax_tcc << "\n";
+        std::cout << "Total TCC2 error (rms): " << error_mwax_tcc << "\n";
     }
     if(params.snapshot) printOutputSnapshot(params, visibilities_gpu);
     if(params.write_csv) reportCSV(params, mwax_tcc_result, "results/tcc_v2.csv");
