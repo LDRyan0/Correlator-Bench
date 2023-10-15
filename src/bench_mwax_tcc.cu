@@ -17,6 +17,8 @@
 #define NR_RECEIVERS_PER_BLOCK 32
 #define NR_TIMES_PER_BLOCK (128 / (NR_BITS))
 
+#define TRANSPOSE_BLOCK_SIZE 512
+
 #define checkCudaCall(function, ...) { \
     cudaError_t error = function; \
     if (error != cudaSuccess) { \
@@ -30,29 +32,38 @@
 // TODO: change so that number of channels can be > 1024 ... very important for MWAX with 6400 channels
 __global__ void mwax_transpose_to_TCC_kernel(Parameters params, const float* input, __half* output) {
     int t, f, s, p;
-    f = threadIdx.x;
-    t = blockIdx.x;
-    p = blockIdx.y;
-    s = blockIdx.z;
+    f = blockIdx.x*blockDim.x + threadIdx.x;
+    t = blockIdx.y;
+    p = blockIdx.z % params.npol;
+    s = blockIdx.z / params.npol;
     
     // split into two time axes
-    int t0, t1;
-    t0 = t / NR_TIMES_PER_BLOCK;
-    t1 = t % NR_TIMES_PER_BLOCK;
-    
-    int in_idx = 2*(s*params.npol*params.nsample*params.nfrequency + p*params.nsample*params.nfrequency + t*params.nfrequency + f);
-    int out_idx = 2*(f*params.nsample*params.nstation*params.npol + t0*params.nstation*params.npol*NR_TIMES_PER_BLOCK 
-        + s*params.npol*NR_TIMES_PER_BLOCK + p*NR_TIMES_PER_BLOCK + t1);
-
-    output[out_idx] = __float2half(input[in_idx]);     // real 
-    output[out_idx+1] = __float2half(input[in_idx+1]); // complex
+    if(f < params.nfrequency) {
+        int t0, t1;
+        t0 = t / NR_TIMES_PER_BLOCK;
+        t1 = t % NR_TIMES_PER_BLOCK;
+        
+        int in_idx = 2*(s*params.npol*params.nsample*params.nfrequency + p*params.nsample*params.nfrequency + t*params.nfrequency + f);
+        int out_idx = 2*(f*params.nsample*params.nstation*params.npol + t0*params.nstation*params.npol*NR_TIMES_PER_BLOCK 
+            + s*params.npol*NR_TIMES_PER_BLOCK + p*NR_TIMES_PER_BLOCK + t1);
+        
+        output[out_idx] = __float2half(input[in_idx]);     // real 
+        output[out_idx+1] = __float2half(input[in_idx+1]); // complex
+    }
 }
 
-inline void mwax_transpose_to_TCC(Parameters params, const std::complex<float>* input, std::complex<__half>* output, cudaStream_t stream) {
-    dim3 block(params.nfrequency, 1, 1);
-    dim3 grid(params.nsample, params.npol, params.nstation);
 
-    mwax_transpose_to_TCC_kernel<<<grid, block, 0, stream>>>(params, (float*)input, (__half*)output);
+inline void mwax_transpose_to_TCC(Parameters params, const std::complex<float>* input, std::complex<__half>* output, cudaStream_t stream) {
+    // need to support > 1024 channels but still want to keep as minor axis
+    if(params.nfrequency <= 1024) {
+        dim3 block(params.nfrequency, 1, 1);
+        dim3 grid(1, params.nsample, params.nstation*params.npol);
+        mwax_transpose_to_TCC_kernel<<<grid, block, 0, stream>>>(params, (float*)input, (__half*)output);
+    } else {
+        dim3 block(TRANSPOSE_BLOCK_SIZE, 1, 1);
+        dim3 grid(params.nfrequency / TRANSPOSE_BLOCK_SIZE, params.nsample, params.nstation*params.npol);
+        mwax_transpose_to_TCC_kernel<<<grid, block, 0, stream>>>(params, (float*)input, (__half*)output);
+    }
 }
 
 void mwax_showTccInfo(Parameters params) {
