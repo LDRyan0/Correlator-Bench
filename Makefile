@@ -17,32 +17,32 @@ LIBS+=          -L$(XGPU_LIBDIR) -lxgpumwax$(NSTATION)t_$(NFREQUENCY)
 
 INCS=          -I$(TCC_INCDIR) -I$(XGPU_INCDIR)
 
-OBJS=          main.o bench_tcc.o bench_mwax_tcc.o bench_xgpu.o bench_serial.o util.o 
+OBJS=          src/main.o src/bench_tcc.o src/bench_mwax_tcc.o src/bench_xgpu.o src/bench_serial.o src/util.o 
 EXEC=          main
 
 $(EXEC): $(OBJS) xgpu
 	$(NVCC) $(NVCCFLAGS) $(LIBS) -o $(EXEC) $(OBJS) -lgomp
 
-main.o: main.cu
-	$(NVCC) $(NVCCFLAGS) -c main.cu
+src/main.o: src/main.cu
+	$(NVCC) $(NVCCFLAGS) -c src/main.cu
 
-bench_tcc.o: bench_tcc.cu
-	$(NVCC) $(NVCCFLAGS) -I$(TCC_INCDIR) -c bench_tcc.cu
+src/bench_tcc.o: src/bench_tcc.cu
+	$(NVCC) $(NVCCFLAGS) -I$(TCC_INCDIR) -c src/bench_tcc.cu
 
-bench_mwax_tcc.o: bench_mwax_tcc.cu
-	$(NVCC) $(NVCCFLAGS) -I$(TCC_INCDIR) -c bench_mwax_tcc.cu
+src/bench_mwax_tcc.o: src/bench_mwax_tcc.cu
+	$(NVCC) $(NVCCFLAGS) -I$(TCC_INCDIR) -c src/bench_mwax_tcc.cu
 
-bench_xgpu.o: bench_xgpu.cu
-	$(NVCC) $(NVCCFLAGS) -I$(XGPU_INCDIR) -c bench_xgpu.cu
+src/bench_xgpu.o: src/bench_xgpu.cu
+	$(NVCC) $(NVCCFLAGS) -I$(XGPU_INCDIR) -c src/bench_xgpu.cu
 
-bench_serial.o: bench_serial.cpp
-	$(CXX) $(CXXFLAGS) -c bench_serial.cpp
+src/bench_serial.o: src/bench_serial.cpp
+	$(CXX) $(CXXFLAGS) -c src/bench_serial.cpp
 
-util.o: util.cpp
-	$(CXX) $(CXXFLAGS) -c util.cpp
+src/util.o: src/util.cpp
+	$(CXX) $(CXXFLAGS) -c src/util.cpp
 
 clean:
-	rm *.o $(EXEC)
+	rm src/*.o $(EXEC)
 	rm $(XGPU_LIBDIR)/*.so
 
 xgpu:		
