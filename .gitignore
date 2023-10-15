@@ -8,4 +8,5 @@
 *.so
 init_env.sh
 .nfs*
-results/
+results/*.csv
+img/*.png
