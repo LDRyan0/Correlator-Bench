@@ -24,22 +24,22 @@ $(EXEC): $(OBJS) xgpu
 	$(NVCC) $(NVCCFLAGS) $(LIBS) -o $(EXEC) $(OBJS) -lgomp
 
 src/main.o: src/main.cu
-	$(NVCC) $(NVCCFLAGS) -c src/main.cu
+	$(NVCC) $(NVCCFLAGS) -c -o $@ $<
 
 src/bench_tcc.o: src/bench_tcc.cu
-	$(NVCC) $(NVCCFLAGS) -I$(TCC_INCDIR) -c src/bench_tcc.cu
+	$(NVCC) $(NVCCFLAGS) -I$(TCC_INCDIR) -c -o $@ $<
 
 src/bench_mwax_tcc.o: src/bench_mwax_tcc.cu
-	$(NVCC) $(NVCCFLAGS) -I$(TCC_INCDIR) -c src/bench_mwax_tcc.cu
+	$(NVCC) $(NVCCFLAGS) -I$(TCC_INCDIR) -c -o $@ $<
 
 src/bench_xgpu.o: src/bench_xgpu.cu
-	$(NVCC) $(NVCCFLAGS) -I$(XGPU_INCDIR) -c src/bench_xgpu.cu
+	$(NVCC) $(NVCCFLAGS) -I$(XGPU_INCDIR) -c -o $@ $<
 
 src/bench_serial.o: src/bench_serial.cpp
-	$(CXX) $(CXXFLAGS) -c src/bench_serial.cpp
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 src/util.o: src/util.cpp
-	$(CXX) $(CXXFLAGS) -c src/util.cpp
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 clean:
 	rm src/*.o $(EXEC)

@@ -69,10 +69,7 @@ __global__ void transpose_to_xGPU_kernel(const cuFloatComplex* input, cuFloatCom
 int transpose_to_xGPU(cuFloatComplex* input, cuFloatComplex* output, unsigned rows, unsigned columns) {
     int nblocks = (int)columns;
     int nthreads = (int)rows;
-
-    std::cout << "nblocks = " << nblocks << "\n";
-    std::cout << "nthreads = " << nthreads << "\n";
-
+    
     transpose_to_xGPU_kernel<<<nblocks,nthreads,0>>>(input,output,rows,columns);
 
     return 0;

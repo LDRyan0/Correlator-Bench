@@ -63,7 +63,9 @@ void printOutputSnapshot(Parameters params, std::complex<float>* data) {
     std::cout << "\n\n";
 }
 
-float rmsError(std::complex<float>* a1, std::complex<float>* a2, size_t N) {
+float rmsError(Parameters params, std::complex<float>* a1, std::complex<float>* a2, size_t N) {
+    std::cout << "Verifying..." << std::endl;
+    
     float abs_error;
     float rel_error;
     float sum = 0;
@@ -74,6 +76,7 @@ float rmsError(std::complex<float>* a1, std::complex<float>* a2, size_t N) {
         if(abs_error > 0.5 && rel_error > 0.01) { 
             #ifdef DEBUG
             std::cout << "Error: " << a1[i] << " != " << a2[i] << " (" << i << ")\n";
+            exit(0);
             #endif
             errors++;
         }
@@ -83,7 +86,7 @@ float rmsError(std::complex<float>* a1, std::complex<float>* a2, size_t N) {
         std::cout << "\033[31m"; // red 
     else
         std::cout << "\033[32m"; // green
-    std::cout << N - errors << " / " << N << " values correct\n";
+    std::printf("%d/%d (%.2f%) values correct \n", N - errors, N, (float)(N - errors)/ N * 100.0);
     std::cout << "\033[0m"; // reset 
 
     return std::sqrt(sum / N);
@@ -112,8 +115,8 @@ void reportCSV(Parameters params, Results result, std::string filename) {
     file.open(filename, std::ios_base::app); // append 
     
     // .csv header
-    // file << "nstation, nfrequency, ntime, npol, input reorder (ms),compute (ms),tri reorder (ms),"
-        // << "channel avg (ms),mwax reorder (ms) total (ms),compute (TOPS),total (TOPS)\n";
+    // file << "nstation, nfrequency, ntime, npol, input_size, output_size, input reorder (ms), compute (ms)" 
+    // << "tri reorder (ms),channel avg (ms),mwax reorder (ms), total (ms),compute (TOPS),total (TOPS)\n";
     
     float total_time = result.in_reorder_time + result.compute_time + result.tri_reorder_time
         + result.channel_avg_time + result.mwax_time;
@@ -122,13 +125,15 @@ void reportCSV(Parameters params, Results result, std::string filename) {
     file << params.nfrequency << ",";
     file << params.nsample << ",";
     file << params.npol << ",";
+    file << params.input_size << ",";
+    file << params.output_size << ",";
     
     file << result.in_reorder_time * 1000 << ",";
     file << result.compute_time * 1000 << ",";
     file << result.tri_reorder_time * 1000 << ",";
-    file << result.channel_avg_time * 1000 << ",";
+    // file << result.channel_avg_time * 1000 << ",";
     file << result.mwax_time * 1000 << ",";
-    file << total_time * 1000 << "";
+    file << total_time * 1000 << ",";
 
     if(result.compute_time != 0) {
         file << ((params.flop / result.compute_time) / 1e12) << ","; 
@@ -137,11 +142,13 @@ void reportCSV(Parameters params, Results result, std::string filename) {
     }
 
     if(total_time != 0) {
-        file << (params.flop / total_time) / 1e12;
+        file << (params.flop / total_time) / 1e12 << ",";
     } else {
-        file << "0";
+        file << "0,";
     }
     
+    file << result.error_rms; // can be 0 if user doesn't want to verify
+
     file << "\n";
     file.close();
 }
@@ -232,8 +239,10 @@ int main (int argc, char *argv[]) {
     memset(visibilities_gpu, 0, params.output_size * sizeof(std::complex<float>));
     Results xgpu_result = runXGPU(params, samples, visibilities_gpu);
     if(params.verify) {
-        error_xgpu = rmsError(visibilities_serial, visibilities_gpu, params.output_size);
+        xgpu_result.error_rms = rmsError(params, visibilities_serial, visibilities_gpu, params.output_size);
         std::cout << "Total XGPU error (rms): " << error_xgpu << "\n";
+    } else {
+        xgpu_result.error_rms = 0; // can't get rms error if we don't want to validate
     }
     if(params.snapshot) printOutputSnapshot(params, visibilities_gpu);
     if(params.write_csv) reportCSV(params, xgpu_result, "results/mwax.csv");
@@ -242,8 +251,10 @@ int main (int argc, char *argv[]) {
     memset(visibilities_gpu, 0, params.output_size * sizeof(std::complex<float>));
     Results tcc_result = runTCC(params, samples, visibilities_gpu);
     if(params.verify) { 
-        error_tcc = rmsError(visibilities_serial, visibilities_gpu, params.output_size);
-        std::cout << " Total TCC error (rms): " << error_tcc << "\n";
+        tcc_result.error_rms = rmsError(params, visibilities_serial, visibilities_gpu, params.output_size);
+        std::cout << " Total TCC error (rms): " << tcc_result.error_rms << "\n";
+    } else {
+        tcc_result.error_rms = 0;
     }
     if(params.snapshot) printOutputSnapshot(params, visibilities_gpu);
     if(params.write_csv) reportCSV(params, tcc_result, "results/tcc_v1.csv");
@@ -252,8 +263,10 @@ int main (int argc, char *argv[]) {
     memset(visibilities_gpu, 0, params.output_size * sizeof(std::complex<float>));
     Results mwax_tcc_result = runMWAXTCC(params, samples, visibilities_gpu);
     if(params.verify) {
-        error_mwax_tcc = rmsError(visibilities_serial, visibilities_gpu, params.output_size);
-        std::cout << "Total TCC2 error (rms): " << error_mwax_tcc << "\n";
+        mwax_tcc_result.error_rms = rmsError(params, visibilities_serial, visibilities_gpu, params.output_size);
+        std::cout << "Total TCC2 error (rms): " << mwax_tcc_result.error_rms << "\n";
+    } else {
+        mwax_tcc_result.error_rms = 0;
     }
     if(params.snapshot) printOutputSnapshot(params, visibilities_gpu);
     if(params.write_csv) reportCSV(params, mwax_tcc_result, "results/tcc_v2.csv");

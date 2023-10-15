@@ -25,6 +25,7 @@ typedef struct {
     float tri_reorder_time;
     float channel_avg_time;
     float mwax_time;
+    float error_rms;
 } Results;
 
 float byteToMB(long bytes);
