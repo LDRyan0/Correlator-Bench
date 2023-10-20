@@ -1,4 +1,4 @@
-#include "bench_xgpu.h"
+#include "xgpu_bench.h"
 
 #include <iostream>
 #include <cassert>
@@ -36,6 +36,8 @@ typedef struct XGPUInternalContextPartStruct {
         exit(1); \
     } \
 }
+
+namespace xgpu { 
 
 inline void checkXGPUCall(int xgpu_error) { 
 // void checkXGPUCall(int xgpu_error) { 
@@ -138,7 +140,7 @@ void xgpu_tri_to_mwax(Parameters *params, void * tri_buffer)
     return;
 }
     
-void showxgpuInfo(XGPUInfo xgpu_info) {
+void showInfo(XGPUInfo xgpu_info) {
     std::cout << "\t=============== XGPU INFO ================\n";
     std::cout << "\tnpol:               " << xgpu_info.npol << "\n";
     std::cout << "\tnstation:           " << xgpu_info.nstation << "\n";
@@ -177,7 +179,7 @@ void showxgpuInfo(XGPUInfo xgpu_info) {
     std::cout << "\tcomplex_block_size: " << xgpu_info.complex_block_size << "\n";
 }
 
-Results runXGPU(Parameters params, std::complex<float>* samples_h, std::complex<float>* visibilities_h) {
+Results run(Parameters params, std::complex<float>* samples_h, std::complex<float>* visibilities_h) {
     Results result = {0, 0, 0};
     int device = 0;
     typedef std::chrono::high_resolution_clock Clock;
@@ -199,7 +201,7 @@ Results runXGPU(Parameters params, std::complex<float>* samples_h, std::complex<
 
     XGPUInfo xgpu_info;
     xgpuInfo(&xgpu_info); // get xGPU info from library
-    showxgpuInfo(xgpu_info);
+    // showxgpuInfo(xgpu_info);
 
     // check that compiled parameters are equal to the target runtime parameters
     assert(xgpu_info.npol == params.npol &&  "xGPU npol does not match");
@@ -251,7 +253,12 @@ Results runXGPU(Parameters params, std::complex<float>* samples_h, std::complex<
     result.mwax_time = time_ms / 1000;
 
 
+    free(matrix_h);
+    checkCudaCall(cudaFree(input_d));
+
     xgpuFree(&xgpu_ctx);
 
     return result;
+}
+
 }

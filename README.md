@@ -35,7 +35,7 @@ Early development. Only targeting [TCC](https://git.astron.nl/RD/tensor-core-cor
 - ~benchmarking analysis~
 - ~output validation~
 - ~result precision comparison (TCC requires downconversion to FP16)~
-- change tcc reorder kernel to support > 1024 channels
+- ~change tcc reorder kernel to support > 1024 channels~
 
 ## Non-critical
 - use `-Wl` and `-rpath` in Makefile so user doesn't have to manually change `LD_LIBRARY_PATH`

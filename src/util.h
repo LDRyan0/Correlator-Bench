@@ -30,5 +30,6 @@ typedef struct {
 
 float byteToMB(long bytes);
 void tri_to_mwax(Parameters params, std::complex<float>*, std::complex<float>*);
+void tri_to_mwax2(Parameters params, std::complex<float>*, std::complex<float>*);
 
 #endif

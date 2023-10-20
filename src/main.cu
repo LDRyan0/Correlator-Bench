@@ -8,13 +8,12 @@
 #include <cstdlib>
 #include <unistd.h>
 
-#include "bench_tcc.h"
-#include "bench_mwax_tcc.h"
-#include "bench_xgpu.h"
-#include "bench_serial.h"
+#include "xgpu_bench.h"
+#include "tcc1_bench.h"
+#include "tcc2_bench.h"
+#include "tcc3_bench.h"
+#include "serial_bench.h"
 #include "util.h"
-
-// #define DEBUG
 
 #define checkCudaCall(function, ...) { \
     cudaError_t error = function; \
@@ -72,14 +71,13 @@ float rmsError(Parameters params, std::complex<float>* a1, std::complex<float>* 
     int errors = 0;
     for(size_t i = 0; i < N; i++) {
         abs_error = std::abs(a1[i] - a2[i]);
-        rel_error = abs_error / (std::max(std::abs(a1[i]), std::abs(a2[i]))); // case where one visibility is 0 but other is small
         if(abs_error > 0.5 && rel_error > 0.01) { 
             #ifdef DEBUG
             std::cout << "Error: " << a1[i] << " != " << a2[i] << " (" << i << ")\n";
-            exit(0);
             #endif
             errors++;
         }
+        
         sum += abs_error*abs_error;
     }
     if(errors)
@@ -90,6 +88,34 @@ float rmsError(Parameters params, std::complex<float>* a1, std::complex<float>* 
     std::cout << "\033[0m"; // reset 
 
     return std::sqrt(sum / N);
+}
+
+float maeError(Parameters params, std::complex<float>* a1, std::complex<float>* a2, size_t N) {
+    std::cout << "Verifying..." << std::endl;
+    
+    float abs_error;
+    float rel_error;
+    float sum = 0;
+    int errors = 0;
+    for(size_t i = 0; i < N; i++) {
+        abs_error = std::abs(a1[i] - a2[i]);
+        rel_error = abs_error / std::abs(a1[i]);
+        if(abs_error > 0.5 && rel_error > 0.05) { 
+            #ifdef DEBUG
+            std::cout << "Error: " << a1[i] << " != " << a2[i] << " (" << i << ")\n";
+            #endif
+            errors++;
+        }
+        sum += rel_error;
+    }
+    if(errors)
+        std::cout << "\033[31m"; // red 
+    else
+        std::cout << "\033[32m"; // green
+    std::printf("%d/%d (%.2f%) values correct \n", N - errors, N, (float)(N - errors)/ N * 100.0);
+    std::cout << "\033[0m"; // reset 
+
+    return (sum / N);
 }
 
 void report(Parameters params, Results result) {
@@ -202,16 +228,12 @@ Parameters getParams(int argc, char *argv[]) {
 // [station][polarisation][time][frequency]
 void createTestVector(std::complex<float>* samples, size_t N) { 
     memset(samples, 0, N * sizeof(std::complex<float>));
-    samples[0] = {1, 1};
+    samples[16*2*8*8] = {1, 1};
 }
 
 
 int main (int argc, char *argv[]) {
     Parameters params = getParams(argc, argv);
-
-    float error_xgpu = 0;
-    float error_tcc = 0;
-    float error_mwax_tcc = 0;
 
     std::cout << "Initialising CUDA...\n";
 
@@ -229,7 +251,9 @@ int main (int argc, char *argv[]) {
         std::cout << samples[i] << "\n";
     }
 
+    // only compute in serial if we want to verify (time consuming)
     if(params.verify) {
+        std::cout << "Running serial correlator...\n";
         Results serial_result = runSerial(params, samples, visibilities_serial);
         if (params.snapshot) printOutputSnapshot(params, visibilities_serial);
         report(params, serial_result);
@@ -237,40 +261,52 @@ int main (int argc, char *argv[]) {
     }
 
     memset(visibilities_gpu, 0, params.output_size * sizeof(std::complex<float>));
-    Results xgpu_result = runXGPU(params, samples, visibilities_gpu);
+    Results xgpu_result = xgpu::run(params, samples, visibilities_gpu);
     if(params.verify) {
-        xgpu_result.error_rms = rmsError(params, visibilities_serial, visibilities_gpu, params.output_size);
-        std::cout << "Total XGPU error (rms): " << error_xgpu << "\n";
+        xgpu_result.error_rms = maeError(params, visibilities_serial, visibilities_gpu, params.output_size);
+        std::cout << "Total XGPU error (rms): " << xgpu_result.error_rms * 100 << "%\n";
     } else {
         xgpu_result.error_rms = 0; // can't get rms error if we don't want to validate
     }
     if(params.snapshot) printOutputSnapshot(params, visibilities_gpu);
-    if(params.write_csv) reportCSV(params, xgpu_result, "results/mwax.csv");
+    if(params.write_csv) reportCSV(params, xgpu_result, "results/xGPU.csv");
     report(params, xgpu_result);
 
     memset(visibilities_gpu, 0, params.output_size * sizeof(std::complex<float>));
-    Results tcc_result = runTCC(params, samples, visibilities_gpu);
+    Results tcc1_result = tcc1::run(params, samples, visibilities_gpu);
     if(params.verify) { 
-        tcc_result.error_rms = rmsError(params, visibilities_serial, visibilities_gpu, params.output_size);
-        std::cout << " Total TCC error (rms): " << tcc_result.error_rms << "\n";
+        tcc1_result.error_rms = maeError(params, visibilities_serial, visibilities_gpu, params.output_size);
+        std::cout << " Average TCC1 error (rmae): " << tcc1_result.error_rms * 100 << "%\n";
     } else {
-        tcc_result.error_rms = 0;
+        tcc1_result.error_rms = 0;
     }
     if(params.snapshot) printOutputSnapshot(params, visibilities_gpu);
-    if(params.write_csv) reportCSV(params, tcc_result, "results/tcc_v1.csv");
-    report(params, tcc_result);
+    if(params.write_csv) reportCSV(params, tcc1_result, "results/tcc_v1.csv");
+    report(params, tcc1_result);
 
     memset(visibilities_gpu, 0, params.output_size * sizeof(std::complex<float>));
-    Results mwax_tcc_result = runMWAXTCC(params, samples, visibilities_gpu);
-    if(params.verify) {
-        mwax_tcc_result.error_rms = rmsError(params, visibilities_serial, visibilities_gpu, params.output_size);
-        std::cout << "Total TCC2 error (rms): " << mwax_tcc_result.error_rms << "\n";
+    Results tcc2_result = tcc2::run(params, samples, visibilities_gpu);
+    if(params.verify) { 
+        tcc2_result.error_rms = maeError(params, visibilities_serial, visibilities_gpu, params.output_size);
+        std::cout << " Average TCC2 error (rmae): " << tcc2_result.error_rms * 100 << "%\n";
     } else {
-        mwax_tcc_result.error_rms = 0;
+        tcc2_result.error_rms = 0;
     }
     if(params.snapshot) printOutputSnapshot(params, visibilities_gpu);
-    if(params.write_csv) reportCSV(params, mwax_tcc_result, "results/tcc_v2.csv");
-    report(params, mwax_tcc_result);
+    if(params.write_csv) reportCSV(params, tcc2_result, "results/tcc_v1.csv");
+    report(params, tcc2_result);
+
+    memset(visibilities_gpu, 0, params.output_size * sizeof(std::complex<float>));
+    Results tcc3_result = tcc3::run(params, samples, visibilities_gpu);
+    if(params.verify) {
+        tcc3_result.error_rms = maeError(params, visibilities_serial, visibilities_gpu, params.output_size);
+        std::cout << "Average TCC3 error (rmae): " << tcc3_result.error_rms * 100 << "%\n";
+    } else {
+        tcc3_result.error_rms = 0;
+    }
+    if(params.snapshot) printOutputSnapshot(params, visibilities_gpu);
+    if(params.write_csv) reportCSV(params, tcc3_result, "results/tcc_v2.csv");
+    report(params, tcc3_result);
 
 
     delete samples;

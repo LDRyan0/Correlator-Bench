@@ -1,15 +1,21 @@
 #!/bin/bash
 
-NFREQUENCY=50
-NTIME=128
+# MWAX
+NFREQUENCY=3200
+NTIME=56
 NPOL=2
-NSTATION=64
+NSTATION=128
+
+# NFREQUENCY=50
+# NTIME=15
+# NPOL=2
+# NSTATION=64
 
 # remove previous results
 rm results/*.csv
 
-for NTIME in {16..256..16} 
+for NSTATION in {32..256..32} 
 do
     make NSTATION=$NSTATION NFREQUENCY=$NFREQUENCY NTIME=$NTIME NPOL=$NPOL
-    ./main -n $NSTATION -f $NFREQUENCY -t $NTIME -p $NPOL -c -v
+    ./main -n $NSTATION -f $NFREQUENCY -t $NTIME -p $NPOL -c
 done
